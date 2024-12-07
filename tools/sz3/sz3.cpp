@@ -145,9 +145,9 @@ void compress(char *inPath, char *cmpPath, SZ3::Config conf) {
     }
     SZ3::writefile(outputFilePath, bytes, outSize);
 
-    printf("compression ratio = %.2f \n", conf.num * 1.0 * sizeof(T) / outSize);
-    printf("compression time = %f\n", compress_time);
-    printf("compressed data file = %s\n", outputFilePath);
+    printf("compression_ratio=%.2f\n", conf.num * 1.0 * sizeof(T) / outSize);
+    printf("compression_time=%f\n", compress_time);
+    printf("compressed_file_location=%s\n", outputFilePath);
 
     delete[] data;
     delete[] bytes;

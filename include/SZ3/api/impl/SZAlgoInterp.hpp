@@ -1,6 +1,8 @@
 #ifndef SZ3_SZALGO_INTERP_HPP
 #define SZ3_SZALGO_INTERP_HPP
 
+#include <iostream>
+
 #include "SZ3/api/impl/SZAlgoLorenzoReg.hpp"
 #include "SZ3/compressor/specialized/SZBlockInterpolationCompressor.hpp"
 #include "SZ3/decomposition/InterpolationDecomposition.hpp"
@@ -120,8 +122,16 @@ size_t SZ_compress_Interp_lorenzo(Config &conf, T *data, uchar *cmpData, size_t 
     size_t cmpSize = 0;
     if (useInterp) {
         conf.cmprAlgo = ALGO_INTERP;
+
+        std::cout << "selected_compressor=";
+        if (conf.interpAlgo == INTERP_ALGO_LINEAR) std::cout << "linear_spine_interpolation";
+        else if (conf.interpAlgo == INTERP_ALGO_CUBIC) std::cout << "cubic_spine_interpolation";
+        std::cout << std::endl;
+
         cmpSize = SZ_compress_Interp<T, N>(conf, data, cmpData, cmpCap);
     } else {
+        std::cout << "selected_compressor=lorenzo_regression" <<std::endl;
+
         // further tune lorenzo
         if (N == 3) {
             float pred_freq, mean_freq;

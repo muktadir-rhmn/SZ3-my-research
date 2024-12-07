@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <iostream>
 
 #include "Decomposition.hpp"
 #include "SZ3/def.hpp"
@@ -68,6 +69,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         interpolator_id = conf.interpAlgo;
         direction_sequence_id = conf.interpDirection;
 
+        log_compression();
         init();
 
         std::vector<int> quant_inds_vec(num_elements);
@@ -135,6 +137,20 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
    private:
     enum PredictorBehavior { PB_predict_overwrite, PB_predict, PB_recover };
+
+    void log_compression(){
+        if (interpolators[interpolator_id] == "linear") {
+            std::cout <<"running_compression_algo=linear_spline_interpolation" << std::endl;
+        } else if (interpolators[interpolator_id] == "cubic") {
+            std::cout <<"running_compression_algo=cubic_spline_interpolation" << std::endl;
+        }
+        std::cout << "dimension=";
+        for (int i = 0; i < global_dimensions.size(); i++) {
+            std::cout << global_dimensions[i];
+            if (i < global_dimensions.size() - 1) std::cout << "x";
+        }
+        std::cout<<std::endl;
+    }
 
     void init() {
         quant_index = 0;
