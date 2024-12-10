@@ -52,8 +52,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                         end_idx[i] = global_dimensions[i] - 1;
                     }
                 }
-                block_interpolation(dec_data, block.get_global_index(), end_idx, PB_recover,
-                                    interpolators[interpolator_id], direction_sequence_id, stride);
+                block_traversal(Interpolation, dec_data, block.get_global_index(), end_idx, PB_recover,
+                                interpolators[interpolator_id], direction_sequence_id, stride);
             }
         }
         quantizer.postdecompress_data();
@@ -71,48 +71,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
         log_compression();
         init();
-
-        std::vector<int> quant_inds_vec(num_elements);
-        quant_inds = quant_inds_vec.data();
-
-        double eb = quantizer.get_eb();
-
-        //            quant_inds.push_back(quantizer.quantize_and_overwrite(*data, 0));
-        quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*data, 0);
-
-        //            Timer timer;
-        //            timer.start();
-
-        for (uint level = interpolation_level; level > 0 && level <= interpolation_level; level--) {
-            if (level >= 3) {
-                quantizer.set_eb(eb * eb_ratio);
-            } else {
-                quantizer.set_eb(eb);
-            }
-            size_t stride = 1U << (level - 1);
-
-            auto inter_block_range = std::make_shared<multi_dimensional_range<T, N>>(
-                data, std::begin(global_dimensions), std::end(global_dimensions), blocksize * stride, 0);
-
-            auto inter_begin = inter_block_range->begin();
-            auto inter_end = inter_block_range->end();
-
-            for (auto block = inter_begin; block != inter_end; ++block) {
-                auto end_idx = block.get_global_index();
-                for (int i = 0; i < N; i++) {
-                    end_idx[i] += blocksize * stride;
-                    if (end_idx[i] > global_dimensions[i] - 1) {
-                        end_idx[i] = global_dimensions[i] - 1;
-                    }
-                }
-
-                block_interpolation(data, block.get_global_index(), end_idx, PB_predict_overwrite,
-                                    interpolators[interpolator_id], direction_sequence_id, stride);
-            }
-        }
-
-        quantizer.postcompress_data();
-        return quant_inds_vec;
+        // just comment out to use the original SZ3
+        learn_weights(data);
+        return interpolate(data);
     }
 
     void save(uchar *&c) override {
@@ -137,8 +98,22 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
    private:
     enum PredictorBehavior { PB_predict_overwrite, PB_predict, PB_recover };
+    enum TraversalPurpose {Learning, Interpolation};
+    struct LinearWeights {
+        // initializing to original SZ3 weights: (a + b) / 2;
+        double w1 = 1.0/2.0;
+        double w2 = 1.0/2.0;
+    };
 
-    void log_compression(){
+    struct CubicWeights {
+        // initializing to original SZ3 weights: (-a + 9 * b + 9 * c - d) / 16;
+        double w1 = -1.0 / 16.0;
+        double w2 = 9.0 / 16.0;
+        double w3 = 9.0 / 16.0;
+        double w4 = -1.0 / 16.0;
+    };
+
+    void log_compression() {
         if (interpolators[interpolator_id] == "linear") {
             std::cout <<"running_compression_algo=linear_spline_interpolation" << std::endl;
         } else if (interpolators[interpolator_id] == "cubic") {
@@ -179,13 +154,78 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         } while (std::next_permutation(sequence.begin(), sequence.end()));
     }
 
+    void learn_weights(T * data) {
+        std::cout << "Learning weights" << std::endl;
+
+        traverse(data, Learning);
+        // todo: compute learned weights
+    }
+
+    std::vector<int> interpolate(T * data) {
+        std::cout << "Interpolating" <<std::endl;
+        std::cout << "Linear Weights(" << linear_weights.w1 << "," << linear_weights.w2 << ")" << std::endl;
+        std::cout << "Cubic Weights(" << cubic_weights.w1 << "," << cubic_weights.w2 << "," << cubic_weights.w3<< "," << cubic_weights.w4 << ")" << std::endl;
+        std::vector<int> quant_inds_vec(num_elements);
+        quant_inds = quant_inds_vec.data();
+
+        quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*data, 0);
+        traverse(data, Interpolation);
+        return quant_inds_vec;
+    }
+
+    void traverse(T * data, TraversalPurpose purpose) {
+        double eb = quantizer.get_eb();
+
+        for (uint level = interpolation_level; level > 0 && level <= interpolation_level; level--) {
+            if (level >= 3) {
+                quantizer.set_eb(eb * eb_ratio);
+            } else {
+                quantizer.set_eb(eb);
+            }
+            size_t stride = 1U << (level - 1);
+
+            auto inter_block_range = std::make_shared<multi_dimensional_range<T, N>>(
+                data, std::begin(global_dimensions), std::end(global_dimensions), blocksize * stride, 0);
+
+            auto inter_begin = inter_block_range->begin();
+            auto inter_end = inter_block_range->end();
+
+            for (auto block = inter_begin; block != inter_end; ++block) {
+                auto end_idx = block.get_global_index();
+                for (int i = 0; i < N; i++) {
+                    end_idx[i] += blocksize * stride;
+                    if (end_idx[i] > global_dimensions[i] - 1) {
+                        end_idx[i] = global_dimensions[i] - 1;
+                    }
+                }
+
+                block_traversal(purpose, data, block.get_global_index(), end_idx, PB_predict_overwrite,
+                                interpolators[interpolator_id], direction_sequence_id, stride);
+            }
+        }
+
+        quantizer.postcompress_data();
+
+    }
+
+    inline T interp_linear_using_weights(T a, T b) {
+        return linear_weights.w1 * a + linear_weights.w1 * b;
+    }
+
+    inline T interp_cubic_using_weights(T a, T b, T c, T d) {
+        return cubic_weights.w1 * a +
+               cubic_weights.w2 * b +
+               cubic_weights.w3 * c +
+               cubic_weights.w4 * d;
+    }
+
     inline void quantize(size_t idx, T &d, T pred) {
         quant_inds[quant_index++] = (quantizer.quantize_and_overwrite(d, pred));
     }
 
     inline void recover(size_t idx, T &d, T pred) { d = quantizer.recover(pred, quant_inds[quant_index++]); }
 
-    double block_interpolation_1d(T *data, size_t begin, size_t end, size_t stride, const std::string &interp_func,
+    double block_traversal_1d(TraversalPurpose purpose, T *data, size_t begin, size_t end, size_t stride, const std::string &interp_func,
                                   const PredictorBehavior pb) {
         size_t n = (end - begin) / stride + 1;
         if (n <= 1) {
@@ -199,26 +239,34 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             if (pb == PB_predict_overwrite) {
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
-                    quantize(d - data, *d, interp_linear(*(d - stride), *(d + stride)));
+                    if (purpose == Interpolation){
+                        quantize(d - data, *d, interp_linear_using_weights(*(d - stride), *(d + stride)));
+                    }
                 }
                 if (n % 2 == 0) {
                     T *d = data + begin + (n - 1) * stride;
                     if (n < 4) {
-                        quantize(d - data, *d, *(d - stride));
+                        if (purpose == Interpolation){
+                            quantize(d - data, *d, *(d - stride));
+                        }
                     } else {
-                        quantize(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
+                        if (purpose == Interpolation){
+                            //todo: what should I do here?
+                            quantize(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
+                        }
                     }
                 }
             } else {
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
-                    recover(d - data, *d, interp_linear(*(d - stride), *(d + stride)));
+                    recover(d - data, *d, interp_linear_using_weights(*(d - stride), *(d + stride)));
                 }
                 if (n % 2 == 0) {
                     T *d = data + begin + (n - 1) * stride;
                     if (n < 4) {
                         recover(d - data, *d, *(d - stride));
                     } else {
+                        //todo: what should I do here?
                         recover(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
                     }
                 }
@@ -229,17 +277,24 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 size_t i;
                 for (i = 3; i + 3 < n; i += 2) {
                     d = data + begin + i * stride;
-                    quantize(d - data, *d,
-                             interp_cubic(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
+                    if (purpose == Interpolation){
+                        quantize(d - data, *d,
+                                 interp_cubic_using_weights(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
+                    }
                 }
                 d = data + begin + stride;
+                //todo: what should I do with interp_quad_1?
                 quantize(d - data, *d, interp_quad_1(*(d - stride), *(d + stride), *(d + stride3x)));
 
                 d = data + begin + i * stride;
+                //todo: what should I do with interp_quad_2?
                 quantize(d - data, *d, interp_quad_2(*(d - stride3x), *(d - stride), *(d + stride)));
                 if (n % 2 == 0) {
                     d = data + begin + (n - 1) * stride;
-                    quantize(d - data, *d, interp_quad_3(*(d - stride5x), *(d - stride3x), *(d - stride)));
+                    if (purpose == Interpolation){
+                        //todo: what should I do with interp_quad_3?
+                        quantize(d - data, *d, interp_quad_3(*(d - stride5x), *(d - stride3x), *(d - stride)));
+                    }
                 }
 
             } else {
@@ -248,7 +303,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 size_t i;
                 for (i = 3; i + 3 < n; i += 2) {
                     d = data + begin + i * stride;
-                    recover(d - data, *d, interp_cubic(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
+                    recover(d - data, *d, interp_cubic_using_weights(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
                 }
                 d = data + begin + stride;
 
@@ -268,16 +323,18 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
     template <uint NN = N>
-    typename std::enable_if<NN == 1, double>::type block_interpolation(T *data, std::array<size_t, N> begin,
+    typename std::enable_if<NN == 1, double>::type block_traversal(TraversalPurpose purpose,
+                                                                       T *data, std::array<size_t, N> begin,
                                                                        std::array<size_t, N> end,
                                                                        const PredictorBehavior pb,
                                                                        const std::string &interp_func,
                                                                        const int direction, size_t stride = 1) {
-        return block_interpolation_1d(data, begin[0], end[0], stride, interp_func, pb);
+        return block_traversal_1d(purpose, data, begin[0], end[0], stride, interp_func, pb);
     }
 
     template <uint NN = N>
-    typename std::enable_if<NN == 2, double>::type block_interpolation(T *data, std::array<size_t, N> begin,
+    typename std::enable_if<NN == 2, double>::type block_traversal(TraversalPurpose purpose,
+                                                                       T *data, std::array<size_t, N> begin,
                                                                        std::array<size_t, N> end,
                                                                        const PredictorBehavior pb,
                                                                        const std::string &interp_func,
@@ -287,21 +344,24 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         const std::array<int, N> dims = dimension_sequences[direction];
         for (size_t j = (begin[dims[1]] ? begin[dims[1]] + stride2x : 0); j <= end[dims[1]]; j += stride2x) {
             size_t begin_offset = begin[dims[0]] * dimension_offsets[dims[0]] + j * dimension_offsets[dims[1]];
-            predict_error += block_interpolation_1d(
-                data, begin_offset, begin_offset + (end[dims[0]] - begin[dims[0]]) * dimension_offsets[dims[0]],
-                stride * dimension_offsets[dims[0]], interp_func, pb);
+            predict_error +=
+                block_traversal_1d(purpose, data, begin_offset,
+                                   begin_offset + (end[dims[0]] - begin[dims[0]]) * dimension_offsets[dims[0]],
+                                   stride * dimension_offsets[dims[0]], interp_func, pb);
         }
         for (size_t i = (begin[dims[0]] ? begin[dims[0]] + stride : 0); i <= end[dims[0]]; i += stride) {
             size_t begin_offset = i * dimension_offsets[dims[0]] + begin[dims[1]] * dimension_offsets[dims[1]];
-            predict_error += block_interpolation_1d(
-                data, begin_offset, begin_offset + (end[dims[1]] - begin[dims[1]]) * dimension_offsets[dims[1]],
-                stride * dimension_offsets[dims[1]], interp_func, pb);
+            predict_error +=
+                block_traversal_1d(purpose, data, begin_offset,
+                                   begin_offset + (end[dims[1]] - begin[dims[1]]) * dimension_offsets[dims[1]],
+                                   stride * dimension_offsets[dims[1]], interp_func, pb);
         }
         return predict_error;
     }
 
     template <uint NN = N>
-    typename std::enable_if<NN == 3, double>::type block_interpolation(T *data, std::array<size_t, N> begin,
+    typename std::enable_if<NN == 3, double>::type block_traversal(TraversalPurpose purpose,
+                                                                       T *data, std::array<size_t, N> begin,
                                                                        std::array<size_t, N> end,
                                                                        const PredictorBehavior pb,
                                                                        const std::string &interp_func,
@@ -313,34 +373,38 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             for (size_t k = (begin[dims[2]] ? begin[dims[2]] + stride2x : 0); k <= end[dims[2]]; k += stride2x) {
                 size_t begin_offset = begin[dims[0]] * dimension_offsets[dims[0]] + j * dimension_offsets[dims[1]] +
                                       k * dimension_offsets[dims[2]];
-                predict_error += block_interpolation_1d(
-                    data, begin_offset, begin_offset + (end[dims[0]] - begin[dims[0]]) * dimension_offsets[dims[0]],
-                    stride * dimension_offsets[dims[0]], interp_func, pb);
+                predict_error +=
+                    block_traversal_1d(purpose, data, begin_offset,
+                                       begin_offset + (end[dims[0]] - begin[dims[0]]) * dimension_offsets[dims[0]],
+                                       stride * dimension_offsets[dims[0]], interp_func, pb);
             }
         }
         for (size_t i = (begin[dims[0]] ? begin[dims[0]] + stride : 0); i <= end[dims[0]]; i += stride) {
             for (size_t k = (begin[dims[2]] ? begin[dims[2]] + stride2x : 0); k <= end[dims[2]]; k += stride2x) {
                 size_t begin_offset = i * dimension_offsets[dims[0]] + begin[dims[1]] * dimension_offsets[dims[1]] +
                                       k * dimension_offsets[dims[2]];
-                predict_error += block_interpolation_1d(
-                    data, begin_offset, begin_offset + (end[dims[1]] - begin[dims[1]]) * dimension_offsets[dims[1]],
-                    stride * dimension_offsets[dims[1]], interp_func, pb);
+                predict_error +=
+                    block_traversal_1d(purpose, data, begin_offset,
+                                       begin_offset + (end[dims[1]] - begin[dims[1]]) * dimension_offsets[dims[1]],
+                                       stride * dimension_offsets[dims[1]], interp_func, pb);
             }
         }
         for (size_t i = (begin[dims[0]] ? begin[dims[0]] + stride : 0); i <= end[dims[0]]; i += stride) {
             for (size_t j = (begin[dims[1]] ? begin[dims[1]] + stride : 0); j <= end[dims[1]]; j += stride) {
                 size_t begin_offset = i * dimension_offsets[dims[0]] + j * dimension_offsets[dims[1]] +
                                       begin[dims[2]] * dimension_offsets[dims[2]];
-                predict_error += block_interpolation_1d(
-                    data, begin_offset, begin_offset + (end[dims[2]] - begin[dims[2]]) * dimension_offsets[dims[2]],
-                    stride * dimension_offsets[dims[2]], interp_func, pb);
+                predict_error +=
+                    block_traversal_1d(purpose, data, begin_offset,
+                                       begin_offset + (end[dims[2]] - begin[dims[2]]) * dimension_offsets[dims[2]],
+                                       stride * dimension_offsets[dims[2]], interp_func, pb);
             }
         }
         return predict_error;
     }
 
     template <uint NN = N>
-    typename std::enable_if<NN == 4, double>::type block_interpolation(T *data, std::array<size_t, N> begin,
+    typename std::enable_if<NN == 4, double>::type block_traversal(TraversalPurpose purpose,
+                                                                       T *data, std::array<size_t, N> begin,
                                                                        std::array<size_t, N> end,
                                                                        const PredictorBehavior pb,
                                                                        const std::string &interp_func,
@@ -354,9 +418,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t t = (begin[dims[3]] ? begin[dims[3]] + stride2x : 0); t <= end[dims[3]]; t += stride2x) {
                     size_t begin_offset = begin[dims[0]] * dimension_offsets[dims[0]] + j * dimension_offsets[dims[1]] +
                                           k * dimension_offsets[dims[2]] + t * dimension_offsets[dims[3]];
-                    predict_error += block_interpolation_1d(
-                        data, begin_offset, begin_offset + (end[dims[0]] - begin[dims[0]]) * dimension_offsets[dims[0]],
-                        stride * dimension_offsets[dims[0]], interp_func, pb);
+                    predict_error +=
+                        block_traversal_1d(purpose, data, begin_offset,
+                                           begin_offset + (end[dims[0]] - begin[dims[0]]) * dimension_offsets[dims[0]],
+                                           stride * dimension_offsets[dims[0]], interp_func, pb);
                 }
             }
         }
@@ -366,9 +431,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t t = (begin[dims[3]] ? begin[dims[3]] + stride2x : 0); t <= end[dims[3]]; t += stride2x) {
                     size_t begin_offset = i * dimension_offsets[dims[0]] + begin[dims[1]] * dimension_offsets[dims[1]] +
                                           k * dimension_offsets[dims[2]] + t * dimension_offsets[dims[3]];
-                    predict_error += block_interpolation_1d(
-                        data, begin_offset, begin_offset + (end[dims[1]] - begin[dims[1]]) * dimension_offsets[dims[1]],
-                        stride * dimension_offsets[dims[1]], interp_func, pb);
+                    predict_error +=
+                        block_traversal_1d(purpose, data, begin_offset,
+                                           begin_offset + (end[dims[1]] - begin[dims[1]]) * dimension_offsets[dims[1]],
+                                           stride * dimension_offsets[dims[1]], interp_func, pb);
                 }
             }
         }
@@ -378,9 +444,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t t = (begin[dims[3]] ? begin[dims[3]] + stride2x : 0); t <= end[dims[3]]; t += stride2x) {
                     size_t begin_offset = i * dimension_offsets[dims[0]] + j * dimension_offsets[dims[1]] +
                                           begin[dims[2]] * dimension_offsets[dims[2]] + t * dimension_offsets[dims[3]];
-                    predict_error += block_interpolation_1d(
-                        data, begin_offset, begin_offset + (end[dims[2]] - begin[dims[2]]) * dimension_offsets[dims[2]],
-                        stride * dimension_offsets[dims[2]], interp_func, pb);
+                    predict_error +=
+                        block_traversal_1d(purpose, data, begin_offset,
+                                           begin_offset + (end[dims[2]] - begin[dims[2]]) * dimension_offsets[dims[2]],
+                                           stride * dimension_offsets[dims[2]], interp_func, pb);
                 }
             }
         }
@@ -391,15 +458,18 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t k = (begin[dims[2]] ? begin[dims[2]] + stride : 0); k <= end[dims[2]]; k += stride) {
                     size_t begin_offset = i * dimension_offsets[dims[0]] + j * dimension_offsets[dims[1]] +
                                           k * dimension_offsets[dims[2]] + begin[dims[3]] * dimension_offsets[dims[3]];
-                    predict_error += block_interpolation_1d(
-                        data, begin_offset, begin_offset + (end[dims[3]] - begin[dims[3]]) * dimension_offsets[dims[3]],
-                        stride * dimension_offsets[dims[3]], interp_func, pb);
+                    predict_error +=
+                        block_traversal_1d(purpose, data, begin_offset,
+                                           begin_offset + (end[dims[3]] - begin[dims[3]]) * dimension_offsets[dims[3]],
+                                           stride * dimension_offsets[dims[3]], interp_func, pb);
                 }
             }
         }
         return predict_error;
     }
 
+    LinearWeights linear_weights;
+    CubicWeights cubic_weights;
     int interpolation_level = -1;
     uint blocksize;
     int interpolator_id;
