@@ -72,7 +72,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         log_compression();
         init();
         /// just comment out to use the original SZ3
-        ///     except, weights are stored
+        ///     except, weights are stored which is 48 bytes which is negligible
         learn_weights(data);
         return interpolate(data);
     }
@@ -102,18 +102,73 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
    private:
     enum PredictorBehavior { PB_predict_overwrite, PB_predict, PB_recover };
     enum TraversalPurpose {Learning, Interpolation};
-    struct LinearWeights {
+    class LinearWeightLearningInterpolator {
+       private:
         // initializing to original SZ3 weights: (a + b) / 2;
         double w1 = 1.0/2.0;
         double w2 = 1.0/2.0;
+
+        long num_datapoints = 0;
+        double a_1 = 0;
+        double a_2 = 0;
+        double a_3 = 0;
+        double b_1 = 0;
+        double b_2 = 0;
+        double b_3 = 0;
+
+       public:
+        T interp(T d_i_minus_1, T d_i_plus_1) {
+            return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+        }
+
+        void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+            num_datapoints++;
+
+            a_1 += d_i_minus_1 * d_i_minus_1;
+            a_2 += d_i_plus_1 * d_i_minus_1;
+            a_3 += d_i * d_i_minus_1;
+
+            b_1 += d_i_minus_1 * d_i_plus_1;
+            b_2 += d_i_plus_1 * d_i_plus_1;
+            b_3 += d_i * d_i_plus_1;
+        }
+
+        void compute_weights() {
+            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            w1 = (b_2 * a_3 - a_2 * b_3) / (a_1 * b_2 - a_2 * b_1);
+            w2 = (a_1 * b_3 - a_3 * b_1) / (a_1 * b_2 - a_2 * b_1);
+        }
+
+        void print_weight(){
+            std::cout << "Linear Weights(" << w1 << "," << w2 << ")" << std::endl;
+        }
+
+        //todo: write save() for storing the weights
+        //todo: write load() for loading the weights
     };
 
-    struct CubicWeights {
+    class CubicWeightLearningInterpolator {
+       private:
         // initializing to original SZ3 weights: (-a + 9 * b + 9 * c - d) / 16;
         double w1 = -1.0 / 16.0;
         double w2 = 9.0 / 16.0;
         double w3 = 9.0 / 16.0;
         double w4 = -1.0 / 16.0;
+       public:
+        T interp(T a, T b, T c, T d) {
+            return w1 * a +
+                   w2 * b +
+                   w3 * c +
+                   w4 * d;
+        }
+
+        void print_weights() {
+            std::cout << "Cubic Weights(" << w1 << "," << w2 << "," << w3<< "," << w4 << ")" << std::endl;
+        }
+
+        //todo: learning (similar to LinearWeightLearningInterpolator)
+        //todo: write save() for storing the weights
+        //todo: write load() for loading the weights
     };
 
     void log_compression() {
@@ -160,13 +215,13 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     void learn_weights(T * data) {
         std::cout << "Learning weights" << std::endl;
         traverse(Learning, data);
-        // todo: compute learned weights
+        linear_interpolator.compute_weights();
     }
 
     std::vector<int> interpolate(T * data) {
         std::cout << "Interpolating" <<std::endl;
-        std::cout << "Linear Weights(" << linear_weights.w1 << "," << linear_weights.w2 << ")" << std::endl;
-        std::cout << "Cubic Weights(" << cubic_weights.w1 << "," << cubic_weights.w2 << "," << cubic_weights.w3<< "," << cubic_weights.w4 << ")" << std::endl;
+        linear_interpolator.print_weight();
+        cubic_interpolator.print_weights();
         std::vector<int> quant_inds_vec(num_elements);
         quant_inds = quant_inds_vec.data();
 
@@ -210,17 +265,6 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
     }
 
-    inline T interp_linear_using_weights(T a, T b) {
-        return linear_weights.w1 * a + linear_weights.w2 * b;
-    }
-
-    inline T interp_cubic_using_weights(T a, T b, T c, T d) {
-        return cubic_weights.w1 * a +
-               cubic_weights.w2 * b +
-               cubic_weights.w3 * c +
-               cubic_weights.w4 * d;
-    }
-
     inline void quantize(size_t idx, T &d, T pred) {
         quant_inds[quant_index++] = (quantizer.quantize_and_overwrite(d, pred));
     }
@@ -242,10 +286,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
                     if (purpose == Interpolation){
-                        quantize(d - data, *d, interp_linear_using_weights(*(d - stride), *(d + stride)));
+                        quantize(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
                     } else if (purpose == Learning) {
-                        //todo: what should I do here?
-
+                        linear_interpolator.learn(*(d - stride), *d, *(d + stride));
                     }
                 }
                 if (n % 2 == 0) {
@@ -263,15 +306,17 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                             //todo: what should I with interp_linear1
                             //todo: change the corresponding recovering accordingly
                             quantize(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
+//                            quantize(d - data, *d, linear_interpolator.interp(*(d - stride3x), *(d - stride)));
                         } else if (purpose == Learning) {
                             //todo: what should I do here?
+//                            linear_interpolator.learn(*(d - stride3x), *d, *(d - stride));
                         }
                     }
                 }
             } else {
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
-                    recover(d - data, *d, interp_linear_using_weights(*(d - stride), *(d + stride)));
+                    recover(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
                 }
                 if (n % 2 == 0) {
                     T *d = data + begin + (n - 1) * stride;
@@ -290,7 +335,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                     d = data + begin + i * stride;
                     if (purpose == Interpolation){
                         quantize(d - data, *d,
-                                 interp_cubic_using_weights(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
+                            cubic_interpolator.interp(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
                     } else if (purpose == Learning) {
                         //todo: what should I do here?
 
@@ -330,7 +375,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 size_t i;
                 for (i = 3; i + 3 < n; i += 2) {
                     d = data + begin + i * stride;
-                    recover(d - data, *d, interp_cubic_using_weights(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
+                    recover(d - data, *d,
+                            cubic_interpolator.interp(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
                 }
                 d = data + begin + stride;
 
@@ -495,8 +541,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
-    LinearWeights linear_weights;
-    CubicWeights cubic_weights;
+    LinearWeightLearningInterpolator linear_interpolator;
+    CubicWeightLearningInterpolator cubic_interpolator;
     int interpolation_level = -1;
     uint blocksize;
     int interpolator_id;
