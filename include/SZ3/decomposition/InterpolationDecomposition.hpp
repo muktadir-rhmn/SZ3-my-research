@@ -71,12 +71,14 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
         log_compression();
         init();
-        // just comment out to use the original SZ3
+        /// just comment out to use the original SZ3
+        ///     except, weights are stored
         learn_weights(data);
         return interpolate(data);
     }
 
     void save(uchar *&c) override {
+        //todo: store weights
         write(global_dimensions.data(), N, c);
         write(blocksize, c);
         write(interpolator_id, c);
@@ -86,6 +88,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
     void load(const uchar *&c, size_t &remaining_length) override {
+        //todo: load weights
         read(global_dimensions.data(), N, c, remaining_length);
         read(blocksize, c, remaining_length);
         read(interpolator_id, c, remaining_length);
@@ -156,8 +159,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
     void learn_weights(T * data) {
         std::cout << "Learning weights" << std::endl;
-
-        traverse(data, Learning);
+        traverse(Learning, data);
         // todo: compute learned weights
     }
 
@@ -169,11 +171,11 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         quant_inds = quant_inds_vec.data();
 
         quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*data, 0);
-        traverse(data, Interpolation);
+        traverse(Interpolation, data);
         return quant_inds_vec;
     }
 
-    void traverse(T * data, TraversalPurpose purpose) {
+    void traverse(TraversalPurpose purpose, T * data) {
         double eb = quantizer.get_eb();
 
         for (uint level = interpolation_level; level > 0 && level <= interpolation_level; level--) {
@@ -241,18 +243,28 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                     T *d = data + begin + i * stride;
                     if (purpose == Interpolation){
                         quantize(d - data, *d, interp_linear_using_weights(*(d - stride), *(d + stride)));
+                    } else if (purpose == Learning) {
+                        //todo: what should I do here?
+
                     }
                 }
                 if (n % 2 == 0) {
                     T *d = data + begin + (n - 1) * stride;
                     if (n < 4) {
                         if (purpose == Interpolation){
+                            //todo: what should I do with this predictions?
+                            //todo: change the corresponding recovering accordingly
                             quantize(d - data, *d, *(d - stride));
+                        } else if (purpose == Learning) {
+                            //todo: what should I do here?
                         }
                     } else {
                         if (purpose == Interpolation){
-                            //todo: what should I do here?
+                            //todo: what should I with interp_linear1
+                            //todo: change the corresponding recovering accordingly
                             quantize(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
+                        } else if (purpose == Learning) {
+                            //todo: what should I do here?
                         }
                     }
                 }
@@ -266,7 +278,6 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                     if (n < 4) {
                         recover(d - data, *d, *(d - stride));
                     } else {
-                        //todo: what should I do here?
                         recover(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
                     }
                 }
@@ -280,20 +291,36 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                     if (purpose == Interpolation){
                         quantize(d - data, *d,
                                  interp_cubic_using_weights(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
+                    } else if (purpose == Learning) {
+                        //todo: what should I do here?
+
                     }
                 }
                 d = data + begin + stride;
-                //todo: what should I do with interp_quad_1?
-                quantize(d - data, *d, interp_quad_1(*(d - stride), *(d + stride), *(d + stride3x)));
+                if (purpose == Interpolation) {
+                    //todo: what should I with interp_quad_1?
+                    //todo: change the corresponding recovering accordingly
+                    quantize(d - data, *d, interp_quad_1(*(d - stride), *(d + stride), *(d + stride3x)));
+                } else if (purpose == Learning) {
+                    //todo: what should I do here?
+                }
 
                 d = data + begin + i * stride;
-                //todo: what should I do with interp_quad_2?
-                quantize(d - data, *d, interp_quad_2(*(d - stride3x), *(d - stride), *(d + stride)));
+                if (purpose == Interpolation) {
+                    //todo: what should I with interp_quad_2?
+                    //todo: change the corresponding recovering accordingly
+                    quantize(d - data, *d, interp_quad_2(*(d - stride3x), *(d - stride), *(d + stride)));
+                } else if (purpose == Learning) {
+                    //todo: what should I do here?
+                }
                 if (n % 2 == 0) {
                     d = data + begin + (n - 1) * stride;
                     if (purpose == Interpolation){
-                        //todo: what should I do with interp_quad_3?
+                        //todo: what should I with interp_quad_3?
+                        //todo: change the corresponding recovering accordingly
                         quantize(d - data, *d, interp_quad_3(*(d - stride5x), *(d - stride3x), *(d - stride)));
+                    } else if (purpose == Learning) {
+                        //todo: what should I do here?
                     }
                 }
 
