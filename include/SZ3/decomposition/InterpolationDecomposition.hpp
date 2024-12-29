@@ -16,6 +16,57 @@
 #include "SZ3/utils/Timer.hpp"
 
 namespace SZ3 {
+class EquationSolver {
+   public:
+    static std::vector<double> solve(std::vector<std::vector<double>> &A, std::vector<double> &B) {
+        return solve_using_Cramers_rule(A, B);
+    }
+
+   private:
+    static std::vector<double> solve_using_Cramers_rule(std::vector<std::vector<double>> &A, std::vector<double> &B) {
+        size_t nUnknowns = B.size();
+        double detA = determinant(A);
+        if (detA == 0) {
+            throw std::runtime_error("No solution of the equations since the determinant is 0.");
+        }
+        std::vector<double> solution(nUnknowns);
+        for (int i = 0; i < nUnknowns; ++i) {
+            std::vector<std::vector<double>> tempA = A;
+            for (int j = 0; j < nUnknowns; ++j) {
+                tempA[j][i] = B[j];
+            }
+            solution[i] = determinant(tempA) / detA;
+        }
+        return solution;
+    }
+
+    static double determinant(std::vector<std::vector<double>> matrix) {
+        double det = 1.0;
+        for (int i = 0; i < matrix.size(); i++) {
+            int pivot = i;
+            for (int j = i + 1; j < matrix.size(); j++) {
+                if (std::abs(matrix[j][i]) > std::abs(matrix[pivot][i])) {
+                    pivot = j;
+                }
+            }
+            if (pivot != i) {
+                std::swap(matrix[i], matrix[pivot]);
+                det *= -1;
+            }
+            if (matrix[i][i] == 0) {
+                return 0;
+            }
+            det *= matrix[i][i];
+            for (int j = i + 1; j < matrix.size(); j++) {
+                double factor = matrix[j][i] / matrix[i][i];
+                for (int k = i + 1; k < matrix.size(); k++) {
+                    matrix[j][k] -= factor * matrix[i][k];
+                }
+            }
+        }
+        return det;
+    }
+};
 template <class T, uint N, class Quantizer>
 class InterpolationDecomposition : public concepts::DecompositionInterface<T, int, N> {
    public:
@@ -107,18 +158,23 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         // initializing to original SZ3 weights: (a + b) / 2;
         double w1 = 1.0/2.0;
         double w2 = 1.0/2.0;
+        double w3 = 0;
 
         long num_datapoints = 0;
         double a_1 = 0;
         double a_2 = 0;
         double a_3 = 0;
+        double a_4 = 0;
         double b_1 = 0;
         double b_2 = 0;
         double b_3 = 0;
+        double b_4 = 0;
+        double c_3 = 0;
+        double c_4 = 0;
 
        public:
         T interp(T d_i_minus_1, T d_i_plus_1) {
-            return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+            return w1 * d_i_minus_1 + w2 * d_i_plus_1 + w3;
         }
 
         void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
@@ -126,21 +182,38 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
             a_1 += d_i_minus_1 * d_i_minus_1;
             a_2 += d_i_plus_1 * d_i_minus_1;
-            a_3 += d_i * d_i_minus_1;
+            a_3 += d_i_minus_1;
+            a_4 += d_i * d_i_minus_1;
 
             b_1 += d_i_minus_1 * d_i_plus_1;
             b_2 += d_i_plus_1 * d_i_plus_1;
-            b_3 += d_i * d_i_plus_1;
+            b_3 += d_i_plus_1;
+            b_4 += d_i * d_i_plus_1;
+
+            c_3 += 1;
+            c_4 += d_i;
         }
 
         void compute_weights() {
             std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
-            w1 = (b_2 * a_3 - a_2 * b_3) / (a_1 * b_2 - a_2 * b_1);
-            w2 = (a_1 * b_3 - a_3 * b_1) / (a_1 * b_2 - a_2 * b_1);
+            std::vector<std::vector<double>> A = {
+                {a_1, a_2, a_3},
+                {b_1, b_2, b_3},
+                {a_3, b_3, c_3}
+            };
+            std::vector<double> B = {
+                a_4,
+                b_4,
+                c_4
+            };
+            std::vector<double> weights = EquationSolver::solve(A, B);
+            w1 = weights[0];
+            w2 = weights[1];
+            w3 = weights[2];
         }
 
         void print_weight(){
-            std::cout << "Linear Weights(" << w1 << "," << w2 << ")" << std::endl;
+            std::cout << "Linear Weights(" << w1 << "," << w2<< "," << w3 << ")" << std::endl;
         }
 
         //todo: write save() for storing the weights
