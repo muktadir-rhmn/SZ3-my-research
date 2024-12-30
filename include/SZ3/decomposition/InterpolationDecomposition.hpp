@@ -26,7 +26,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
     T *decompress(const Config &conf, std::vector<int> &quant_inds, T *dec_data) override {
         init();
-
+        linear_interpolator.print_weight();
         this->quant_inds = quant_inds.data();
         //            lossless.postdecompress_data(buffer);
         double eb = quantizer.get_eb();
@@ -78,21 +78,23 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
     void save(uchar *&c) override {
-        //todo: store weights
         write(global_dimensions.data(), N, c);
         write(blocksize, c);
         write(interpolator_id, c);
         write(direction_sequence_id, c);
 
+        linear_interpolator.save(c);
+
         quantizer.save(c);
     }
 
     void load(const uchar *&c, size_t &remaining_length) override {
-        //todo: load weights
         read(global_dimensions.data(), N, c, remaining_length);
         read(blocksize, c, remaining_length);
         read(interpolator_id, c, remaining_length);
         read(direction_sequence_id, c, remaining_length);
+
+        linear_interpolator.load(c, remaining_length);
 
         quantizer.load(c, remaining_length);
     }
@@ -116,8 +118,13 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         double b_2 = 0;
         double b_3 = 0;
 
+        int i = 0;
        public:
         T interp(T d_i_minus_1, T d_i_plus_1) {
+//            if (i < 200) {
+//                std::cout << "prediction using: " << d_i_minus_1 << ", "<< d_i_plus_1 << std::endl;
+//                i++;
+//            }
             return w1 * d_i_minus_1 + w2 * d_i_plus_1;
         }
 
@@ -144,6 +151,14 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         //todo: write save() for storing the weights
+        void save(uchar *&c) {
+            write(w1, c);
+            write(w2, c);
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            read(w1, c, remaining_length);
+            read(w2, c, remaining_length);
+        }
         //todo: write load() for loading the weights
     };
 
@@ -239,6 +254,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             } else {
                 quantizer.set_eb(eb);
             }
+//            std::cout << "abs error bound: " << quantizer.get_eb() << std::endl;
             size_t stride = 1U << (level - 1);
 
             auto inter_block_range = std::make_shared<multi_dimensional_range<T, N>>(
@@ -266,7 +282,11 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
     inline void quantize(size_t idx, T &d, T pred) {
+//        T original_value = d;
         quant_inds[quant_index++] = (quantizer.quantize_and_overwrite(d, pred));
+//        if (quant_index < 200) {
+//            std::cout << "(original, predicted, decompressed)=" << original_value << "," << pred  << "," << d<< std::endl;
+//        }
     }
 
     inline void recover(size_t idx, T &d, T pred) { d = quantizer.recover(pred, quant_inds[quant_index++]); }
