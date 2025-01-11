@@ -108,6 +108,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                                 interpolators[interpolator_id], direction_sequence_id, stride);
             }
         }
+
         quantizer.postdecompress_data();
         //            timer.stop("Interpolation Decompress");
 
@@ -124,9 +125,18 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         log_compression();
         init();
         /// just comment out to use the original SZ3
-        ///     except, weights are stored which is 48 bytes which is negligible
+        ///     except, weights are stored
         learn_weights(data);
-        return interpolate(data);
+        auto t = interpolate(data);
+
+        // print some analysis data
+        auto avg_prediction_error = prediction_error_sum / num_data_points;
+        auto avg_diff = diff_sum / num_data_points;
+        std::cout << "average prediction error = " <<  avg_prediction_error << std::endl;
+        std::cout << "average difference between original and decompressed = " <<  avg_diff << std::endl;
+        std::cout << "max prediction error = " << max_prediction_error << std::endl;
+
+        return t;
     }
 
     void save(uchar *&c) override {
@@ -170,13 +180,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         double b_2 = 0;
         double b_3 = 0;
 
-        int i = 0;
        public:
         T interp(T d_i_minus_1, T d_i_plus_1) {
-//            if (i < 200) {
-//                std::cout << "prediction using: " << d_i_minus_1 << ", "<< d_i_plus_1 << std::endl;
-//                i++;
-//            }
             return w1 * d_i_minus_1 + w2 * d_i_plus_1;
         }
 
@@ -284,6 +289,61 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             read(w1, c, remaining_length);
             read(w2, c, remaining_length);
             read(w3, c, remaining_length);
+        }
+    };
+
+    class LinearWeightByBlocksLearningInterpolator {
+       private:
+        std::vector<LinearWeightLearningInterpolator> interpolators;
+        size_t training_data_index = 0;
+        size_t interpolation_data_index = 0;
+        const size_t BLOCK_SIZE = 1000000;
+       public:
+        void learn(T d_i_minus_1, T d_i, T d_i_plus_1) {
+            if (training_data_index == 0) {
+                interpolators.push_back(LinearWeightLearningInterpolator());
+            }
+            interpolators[interpolators.size() - 1].learn(d_i_minus_1, d_i, d_i_plus_1);
+            training_data_index++;
+            if (training_data_index == BLOCK_SIZE) {
+                training_data_index = 0;
+            }
+        }
+
+        void finalize_learning() {
+            for (int i = 0; i < interpolators.size(); i++) {
+                interpolators[i].finalize_learning();
+            }
+        }
+
+        T interp(T d_i_minus_1, T d_i_plus_1) {
+            size_t interpolator_i = interpolation_data_index / BLOCK_SIZE;
+            interpolation_data_index++;
+            return interpolators[interpolator_i].interp(d_i_minus_1, d_i_plus_1);
+        }
+
+        void print_weight(){
+            for (int i = 0; i < interpolators.size(); i++) {
+                interpolators[i].print_weight();
+            }
+        }
+
+        void save(uchar *&c) {
+            size_t num_interpolators = interpolators.size();
+            write(num_interpolators, c);
+
+            for (int i = 0; i < interpolators.size(); i++) {
+                interpolators[i].save(c);
+            }
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            size_t num_interpolators;
+            read(num_interpolators, c, remaining_length);
+
+            for(int i = 0; i < num_interpolators; i++) {
+                interpolators.push_back(LinearWeightLearningInterpolator());
+                interpolators[i].load(c, remaining_length);
+            }
         }
     };
 
@@ -407,11 +467,16 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
     inline void quantize(size_t idx, T &d, T pred) {
-//        T original_value = d;
+        num_data_points++;
+        T original_value = d;
+        T prediction_error = std::abs(original_value - pred);
+        if (prediction_error > max_prediction_error) max_prediction_error = prediction_error;
+        prediction_error_sum += prediction_error;
+
         quant_inds[quant_index++] = (quantizer.quantize_and_overwrite(d, pred));
-//        if (quant_index < 200) {
-//            std::cout << "(original, predicted, decompressed)=" << original_value << "," << pred  << "," << d<< std::endl;
-//        }
+
+        T decompressed_value = d;
+        diff_sum += std::abs(original_value - decompressed_value);
     }
 
     inline void recover(size_t idx, T &d, T pred) { d = quantizer.recover(pred, quant_inds[quant_index++]); }
@@ -431,6 +496,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
                     if (purpose == Interpolation){
+                        if (quant_index < 500) {
+                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride) << std::endl;
+                        }
                         quantize(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
                     } else if (purpose == Learning) {
                         linear_interpolator.learn(*(d - stride), *d, *(d + stride));
@@ -686,7 +754,16 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
+//    LinearWeightByBlocksLearningInterpolator linear_interpolator;
     LinearWeightLearningInterpolator linear_interpolator;
+
+    // for analysis purpose
+    double prediction_error_sum = 0;
+    double max_prediction_error = -9999999999999;
+    double diff_sum = 0; // sum of difference between original data and decompressed data
+    double max_diff = -99999999999;
+    size_t num_data_points = 0;
+
     CubicWeightLearningInterpolator cubic_interpolator;
     int interpolation_level = -1;
     uint blocksize;
