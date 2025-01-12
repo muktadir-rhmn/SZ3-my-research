@@ -124,10 +124,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
         log_compression();
         init();
-        /// just comment out to use the original SZ3
-        ///     except, weights are stored
-        learn_weights(data);
-        auto t = interpolate(data);
+
+        auto t = compress_using_sz3s_original_order(data);
 
         // print some analysis data
         auto avg_prediction_error = prediction_error_sum / num_data_points;
@@ -292,6 +290,89 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
     };
 
+    // terrible performance
+    class NonLinearWeightWithConstantLearningInterpolator {
+       private:
+        // initializing to original SZ3 weights: (a + b) / 2;
+        double w1 = 1.0/2.0;
+        double w2 = 1.0/2.0;
+        double w3 = 0;
+
+        long num_datapoints = 0;
+        double a_1 = 0;
+        double a_2 = 0;
+        double a_3 = 0;
+        double a_4 = 0;
+        double b_1 = 0;
+        double b_2 = 0;
+        double b_3 = 0;
+        double b_4 = 0;
+        double c_3 = 0;
+        double c_4 = 0;
+
+       public:
+        T interp(T d_i_minus_1, T d_i_plus_1) {
+            return w1 * f1(d_i_minus_1) + w2 * f2(d_i_plus_1) + w3;
+        }
+
+        void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+            num_datapoints++;
+
+            a_1 += f1(d_i_minus_1) * f1(d_i_minus_1);
+            a_2 += f2(d_i_plus_1) * f1(d_i_minus_1);
+            a_3 += f1(d_i_minus_1);
+            a_4 += d_i * f1(d_i_minus_1);
+
+            b_1 += f1(d_i_minus_1) * f2(d_i_plus_1);
+            b_2 += f2(d_i_plus_1) * f2(d_i_plus_1);
+            b_3 += f2(d_i_plus_1);
+            b_4 += d_i * f2(d_i_plus_1);
+
+            c_3 += 1;
+            c_4 += d_i;
+        }
+
+        T f1(T d_i_minus_1) {
+            return d_i_minus_1;
+        }
+
+        T f2(T d_i_plus_1) {
+            return f1(d_i_plus_1);
+        }
+
+        void finalize_learning() {
+            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            std::vector<std::vector<double>> A = {
+                {a_1, a_2, a_3},
+                {b_1, b_2, b_3},
+                {a_3, b_3, c_3}
+            };
+            std::vector<double> B = {
+                a_4,
+                b_4,
+                c_4
+            };
+            std::vector<double> weights = EquationSolver::solve(A, B);
+            w1 = weights[0];
+            w2 = weights[1];
+            w3 = weights[2];
+        }
+
+        void print_weight(){
+            std::cout << "Non-Linear Weights(" << w1 << "," << w2<< "," << w3 << ")" << std::endl;
+        }
+
+        void save(uchar *&c) {
+            write(w1, c);
+            write(w2, c);
+            write(w3, c);
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            read(w1, c, remaining_length);
+            read(w2, c, remaining_length);
+            read(w3, c, remaining_length);
+        }
+    };
     class LinearWeightByBlocksLearningInterpolator {
        private:
         std::vector<LinearWeightLearningInterpolator> interpolators;
@@ -412,6 +493,13 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         } while (std::next_permutation(sequence.begin(), sequence.end()));
     }
 
+    std::vector<int> compress_using_sz3s_original_order(T *data){
+        /// just comment out to use the original SZ3
+        ///     except, weights are stored
+        learn_weights(data);
+        return interpolate(data);;
+    }
+
     void learn_weights(T * data) {
         std::cout << "Learning weights" << std::endl;
         traverse(Learning, data);
@@ -497,7 +585,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                     T *d = data + begin + i * stride;
                     if (purpose == Interpolation){
                         if (quant_index < 500) {
-                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride) << std::endl;
+                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
+                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)
+                                      << " prediction " <<  prediction << " error: " << *d - prediction <<  std::endl;
                         }
                         quantize(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
                     } else if (purpose == Learning) {
@@ -754,8 +844,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
+//    LinearWeightLearningInterpolator linear_interpolator;
+    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
 //    LinearWeightByBlocksLearningInterpolator linear_interpolator;
-    LinearWeightLearningInterpolator linear_interpolator;
+//    LinearWeightWithConstantLearningInterpolator linear_interpolator;
 
     // for analysis purpose
     double prediction_error_sum = 0;
