@@ -125,7 +125,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         log_compression();
         init();
 
-        auto t = compress_using_sz3s_original_order(data);
+//        auto t = compress_using_sz3s_original_order(data);
+        auto t = compress_using_my_custom_order(data);
 
         // print some analysis data
         auto avg_prediction_error = prediction_error_sum / num_data_points;
@@ -378,15 +379,18 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         std::vector<LinearWeightLearningInterpolator> interpolators;
         size_t training_data_index = 0;
         size_t interpolation_data_index = 0;
-        const size_t BLOCK_SIZE = 1000000;
+        size_t block_size;
        public:
+        void set_block_size(size_t block_size_){
+            block_size = block_size_;
+        }
         void learn(T d_i_minus_1, T d_i, T d_i_plus_1) {
             if (training_data_index == 0) {
                 interpolators.push_back(LinearWeightLearningInterpolator());
             }
             interpolators[interpolators.size() - 1].learn(d_i_minus_1, d_i, d_i_plus_1);
             training_data_index++;
-            if (training_data_index == BLOCK_SIZE) {
+            if (training_data_index == block_size) {
                 training_data_index = 0;
             }
         }
@@ -398,7 +402,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         T interp(T d_i_minus_1, T d_i_plus_1) {
-            size_t interpolator_i = interpolation_data_index / BLOCK_SIZE;
+            size_t interpolator_i = interpolation_data_index / block_size;
             interpolation_data_index++;
             return interpolators[interpolator_i].interp(d_i_minus_1, d_i_plus_1);
         }
@@ -493,11 +497,65 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         } while (std::next_permutation(sequence.begin(), sequence.end()));
     }
 
+
+    std::vector<int> compress_using_my_custom_order(T *data){
+        size_t BLOCK_SIZE = num_elements;
+//        linear_interpolator.set_block_size(BLOCK_SIZE);
+        learn_weights_custom_order(data, BLOCK_SIZE);
+        return interpolate_custom_order(data, BLOCK_SIZE);
+    }
+
+    void learn_weights_custom_order(T * data, size_t block_size) {
+        std::cout << "Learning weights using custom order" << std::endl;
+        traverse_customer_order(Learning, data, block_size);
+        linear_interpolator.finalize_learning();
+    }
+
+    std::vector<int> interpolate_custom_order(T *data, size_t block_size){
+        std::cout << "Interpolating using custom order" <<std::endl;
+        linear_interpolator.print_weight();
+        cubic_interpolator.print_weights();
+        std::vector<int> quant_inds_vec(num_elements);
+        quant_inds = quant_inds_vec.data();
+
+        //todo: change it
+
+        quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*(data+1), *(data+1));
+        traverse_customer_order(Interpolation, data, block_size);
+        return quant_inds_vec;
+    }
+
+    void traverse_customer_order(TraversalPurpose purpose, T * data, size_t block_size) {
+//        if (N != 1) throw std::runtime_error("multidimensional data is not supported.");
+        for(int i = 0 ; i < num_elements; i++) {
+            if (i % block_size == 0) {
+                if (purpose == Learning) {
+                    linear_interpolator.learn(*(data + i - 2), *(data + i), *(data + i - 1));
+                } else if (purpose == Interpolation) {
+                    quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*(data+i), 0);
+                }
+            } else if (i % block_size == 1) {
+                if (purpose == Learning) {
+                    linear_interpolator.learn(*(data + i - 2), *(data + i), *(data + i - 1));
+                } else if (purpose == Interpolation) {
+                    quantize(0, *(data + i), linear_interpolator.interp(*(data + i - 2), *(data + i - 1)));
+                }
+            } else {
+                if (purpose == Learning) {
+                    linear_interpolator.learn(*(data + i - 2), *(data + i), *(data + i - 1));
+                } else if (purpose == Interpolation) {
+                    quantize(0, *(data + i), linear_interpolator.interp(*(data + i - 2), *(data + i - 1)));
+                }
+            }
+
+        }
+    }
+
     std::vector<int> compress_using_sz3s_original_order(T *data){
         /// just comment out to use the original SZ3
         ///     except, weights are stored
         learn_weights(data);
-        return interpolate(data);;
+        return interpolate(data);
     }
 
     void learn_weights(T * data) {
@@ -844,8 +902,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
-//    LinearWeightLearningInterpolator linear_interpolator;
-    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
+    LinearWeightLearningInterpolator linear_interpolator;
+//    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
 //    LinearWeightByBlocksLearningInterpolator linear_interpolator;
 //    LinearWeightWithConstantLearningInterpolator linear_interpolator;
 
