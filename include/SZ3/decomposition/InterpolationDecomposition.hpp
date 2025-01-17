@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <fstream>
+
 
 #include "Decomposition.hpp"
 #include "SZ3/def.hpp"
@@ -125,16 +127,25 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         log_compression();
         init();
 
-//        auto t = compress_using_sz3s_original_order(data);
-        auto t = compress_using_my_custom_order(data);
+        //for analysis purpose:
+        std::ofstream order_file_inst("/home/foo/datasets/acs_wht_order_file.txt");
+        order_file = &order_file_inst;
+
+        auto t = compress_using_sz3s_original_order(data);
+//        auto t = compress_using_my_custom_order(data);
 
         // print some analysis data
-        auto avg_prediction_error = prediction_error_sum / num_data_points;
-        auto avg_diff = diff_sum / num_data_points;
+        auto avg_prediction_error = prediction_error_sum / num_data_points_compressed;
+        auto avg_diff = diff_sum / num_data_points_compressed;
+        auto percent_predicted = ( 100.0 * predicted_data_points) / num_data_points_compressed;
+        auto mse = prediction_error_squared_sum / num_data_points_compressed;
+        std::cout << "percent predicted = " << percent_predicted << std::endl;
         std::cout << "average prediction error = " <<  avg_prediction_error << std::endl;
-        std::cout << "average difference between original and decompressed = " <<  avg_diff << std::endl;
+        std::cout << "mean squared error = " << mse << std::endl;
         std::cout << "max prediction error = " << max_prediction_error << std::endl;
+        std::cout << "average difference between original and decompressed = " <<  avg_diff << std::endl;
 
+        order_file->close();
         return t;
     }
 
@@ -334,11 +345,11 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         T f1(T d_i_minus_1) {
-            return d_i_minus_1;
+            return d_i_minus_1 * std::sin(d_i_minus_1);
         }
 
         T f2(T d_i_plus_1) {
-            return f1(d_i_plus_1);
+            return d_i_plus_1 * std::sin(d_i_plus_1) ;
         }
 
         void finalize_learning() {
@@ -613,13 +624,19 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
     inline void quantize(size_t idx, T &d, T pred) {
-        num_data_points++;
+        num_data_points_compressed++;
         T original_value = d;
         T prediction_error = std::abs(original_value - pred);
         if (prediction_error > max_prediction_error) max_prediction_error = prediction_error;
         prediction_error_sum += prediction_error;
+        prediction_error_squared_sum += prediction_error * prediction_error;
 
-        quant_inds[quant_index++] = (quantizer.quantize_and_overwrite(d, pred));
+        auto quantization_index = quantizer.quantize_and_overwrite(d, pred);
+        quant_inds[quant_index++] = quantization_index;
+
+        if (quantization_index != 0) {
+            predicted_data_points++;
+        }
 
         T decompressed_value = d;
         diff_sum += std::abs(original_value - decompressed_value);
@@ -642,10 +659,11 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
                     if (purpose == Interpolation){
-                        if (quant_index < 500) {
-                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
-                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)
-                                      << " prediction " <<  prediction << " error: " << *d - prediction <<  std::endl;
+                        if (quant_index < 500000) {
+//                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
+//                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)
+//                                      << " prediction " <<  prediction << " error: " << *d - prediction <<  std::endl;
+                                (*order_file) << *(d - stride) << " " << *(d + stride) << " " << *d <<std::endl;
                         }
                         quantize(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
                     } else if (purpose == Learning) {
@@ -908,11 +926,13 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 //    LinearWeightWithConstantLearningInterpolator linear_interpolator;
 
     // for analysis purpose
+    std::ofstream* order_file;
     double prediction_error_sum = 0;
+    double prediction_error_squared_sum = 0;
     double max_prediction_error = -9999999999999;
     double diff_sum = 0; // sum of difference between original data and decompressed data
-    double max_diff = -99999999999;
-    size_t num_data_points = 0;
+    size_t num_data_points_compressed = 0;
+    size_t predicted_data_points = 0;
 
     CubicWeightLearningInterpolator cubic_interpolator;
     int interpolation_level = -1;
