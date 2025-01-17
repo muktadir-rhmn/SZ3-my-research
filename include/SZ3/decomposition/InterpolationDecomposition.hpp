@@ -209,8 +209,13 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
         void finalize_learning() {
             std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
-            w1 = (b_2 * a_3 - a_2 * b_3) / (a_1 * b_2 - a_2 * b_1);
-            w2 = (a_1 * b_3 - a_3 * b_1) / (a_1 * b_2 - a_2 * b_1);
+            double d1 = a_1 * b_2 - a_2 * b_1;
+            double d2 = a_1 * b_2 - a_2 * b_1;
+            if (d1 != 0 && d2 != 0) {
+                w1 = (b_2 * a_3 - a_2 * b_3) / d1;
+                w2 = (a_1 * b_3 - a_3 * b_1) / d2;
+            }
+
         }
 
         void print_weight(){
