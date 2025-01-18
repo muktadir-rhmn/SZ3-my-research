@@ -128,9 +128,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         init();
 
         //for analysis purpose:
-        std::ofstream order_file_inst("/home/foo/datasets/acs_wht_order_file.txt");
+        std::ofstream order_file_inst("/home/foo/datasets/jetin_crossflow_order_file.txt");
         order_file = &order_file_inst;
 
+        linear_interpolator.set_weights(global_linear_interpolator.w1, global_linear_interpolator.w2);
         auto t = compress_using_sz3s_original_order(data);
 //        auto t = compress_using_my_custom_order(data);
 
@@ -144,6 +145,12 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         std::cout << "mean squared error = " << mse << std::endl;
         std::cout << "max prediction error = " << max_prediction_error << std::endl;
         std::cout << "average difference between original and decompressed = " <<  avg_diff << std::endl;
+
+        std::unordered_set<int> set;
+        for (auto i: t) {
+            set.insert(i);
+        }
+        std::cout << "Unique indices = " << set.size() <<std::endl;
 
         order_file->close();
         return t;
@@ -193,6 +200,11 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
        public:
         T interp(T d_i_minus_1, T d_i_plus_1) {
             return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+        }
+
+        void set_weights(double ww1, double ww2) {
+            this->w1 = ww1;
+            this->w2 = ww2;
         }
 
         void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
@@ -570,7 +582,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     std::vector<int> compress_using_sz3s_original_order(T *data){
         /// just comment out to use the original SZ3
         ///     except, weights are stored
-        learn_weights(data);
+//        learn_weights(data);
         return interpolate(data);
     }
 
@@ -663,7 +675,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             if (pb == PB_predict_overwrite) {
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
-                    if (purpose == Interpolation){
+                    if (purpose == Interpolation) {
                         if (quant_index < 500000) {
 //                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
 //                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)

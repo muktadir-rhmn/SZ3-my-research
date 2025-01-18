@@ -58,6 +58,64 @@ const char *enum2Str(T e) {
     }
 }
 
+class LinearWeightLearningInterpolator {
+   private:
+
+
+    long num_datapoints = 0;
+    double a_1 = 0;
+    double a_2 = 0;
+    double a_3 = 0;
+    double b_1 = 0;
+    double b_2 = 0;
+    double b_3 = 0;
+
+   public:
+    // initializing to original SZ3 weights: (a + b) / 2;
+    double w1 = 1.0/2.0;
+    double w2 = 1.0/2.0;
+    double interp(double d_i_minus_1, double d_i_plus_1) {
+        return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+    }
+
+    void learn(double d_i_minus_1, double d_i, double d_i_plus_1){
+        num_datapoints++;
+
+        a_1 += d_i_minus_1 * d_i_minus_1;
+        a_2 += d_i_plus_1 * d_i_minus_1;
+        a_3 += d_i * d_i_minus_1;
+
+        b_1 += d_i_minus_1 * d_i_plus_1;
+        b_2 += d_i_plus_1 * d_i_plus_1;
+        b_3 += d_i * d_i_plus_1;
+    }
+
+    void finalize_learning() {
+        std::cout << "Global Interpolator: Computing weights from " << num_datapoints << " data points" <<std::endl;
+        double d1 = a_1 * b_2 - a_2 * b_1;
+        double d2 = a_1 * b_2 - a_2 * b_1;
+        if (d1 != 0 && d2 != 0) {
+            w1 = (b_2 * a_3 - a_2 * b_3) / d1;
+            w2 = (a_1 * b_3 - a_3 * b_1) / d2;
+        }
+
+    }
+
+    void print_weight(){
+        std::cout << "Linear Weights(" << w1 << "," << w2 << ")" << std::endl;
+    }
+
+    void save(uchar *&c) {
+        write(w1, c);
+        write(w2, c);
+    }
+    void load(const uchar *&c, size_t &remaining_length) {
+        read(w1, c, remaining_length);
+        read(w2, c, remaining_length);
+    }
+};
+LinearWeightLearningInterpolator global_linear_interpolator;
+
 class Config {
    public:
     template <class... Dims>

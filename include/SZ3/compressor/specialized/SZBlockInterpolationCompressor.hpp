@@ -199,6 +199,7 @@ class SZBlockInterpolationCompressor {
             if (pb == PB_predict_overwrite) {
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
+                    global_linear_interpolator.learn(*(d - stride), *d, *(d + stride));
                     quantize(*d, interp_linear(*(d - stride), *(d + stride)));
                 }
                 if (n % 2 == 0) {
