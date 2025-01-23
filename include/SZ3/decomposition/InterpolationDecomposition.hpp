@@ -131,22 +131,43 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         std::ofstream order_file_inst("/home/foo/datasets/acs_wht_order_file.txt");
         order_file = &order_file_inst;
 
-        auto t = compress_using_sz3s_original_order(data);
-//        auto t = compress_using_my_custom_order(data);
+        auto quant_inds_vec = compress_using_sz3s_original_order(data);
+//        auto quant_inds_vec = compress_using_my_custom_order(data);
 
         // print some analysis data
         auto avg_prediction_error = prediction_error_sum / num_data_points_compressed;
         auto avg_diff = diff_sum / num_data_points_compressed;
         auto percent_predicted = ( 100.0 * predicted_data_points) / num_data_points_compressed;
         auto mse = prediction_error_squared_sum / num_data_points_compressed;
+        auto variance = mse - avg_prediction_error * avg_prediction_error;
         std::cout << "percent predicted = " << percent_predicted << std::endl;
         std::cout << "average prediction error = " <<  avg_prediction_error << std::endl;
         std::cout << "mean squared error = " << mse << std::endl;
+        std::cout << "variance = " << variance << std::endl;
         std::cout << "max prediction error = " << max_prediction_error << std::endl;
         std::cout << "average difference between original and decompressed = " <<  avg_diff << std::endl;
 
+        std::map<int, int> freq_map; // ordered map
+        for (auto i: quant_inds_vec) {
+            freq_map[i] += 1;
+        }
+        std::cout << "Unique indices = " << freq_map.size() <<std::endl;
+
+        std::map<int, int> freq_to_index;
+        for (auto & i : freq_map) {
+            auto index = i.first;
+            auto freq = i.second;
+            freq_to_index[freq] = index;
+        }
+
+        auto it = freq_to_index.rbegin();
+        for(auto i = 0; i < 10; i++) {
+            std::cout << it-> first << ", " << it-> second <<std::endl;
+            it++;
+        }
+
         order_file->close();
-        return t;
+        return quant_inds_vec;
     }
 
     void save(uchar *&c) override {
@@ -638,6 +659,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
         auto quantization_index = quantizer.quantize_and_overwrite(d, pred);
         quant_inds[quant_index++] = quantization_index;
+//        d = original_value; //todo: remove it. Used for experimental purposes to compress using the original data.
 
         if (quantization_index != 0) {
             predicted_data_points++;

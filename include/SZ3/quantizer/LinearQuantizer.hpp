@@ -33,6 +33,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     // int quantize(T data, T pred, T& dec_data);
     int quantize_and_overwrite(T &data, T pred) override {
         T diff = data - pred;
+//        auto quant_index = std::llround(fabs(diff) * this->error_bound_reciprocal) + 1;
         auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
         if (quant_index < this->radius * 2) {
             quant_index >>= 1;
@@ -47,6 +48,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
             }
             T decompressed_data = pred + quant_index * this->error_bound;
             if (fabs(decompressed_data - data) > this->error_bound) {
+//                std::cout << "decompressed out of bound: original : " << data << " prediction: " << pred << " decomressed: " << decompressed_data << " err bound: " << get_eb() << std::endl;
                 unpred.push_back(data);
                 return 0;
             } else {
