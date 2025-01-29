@@ -199,6 +199,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     enum TraversalPurpose {Learning, Interpolation};
     class LinearWeightLearningInterpolator {
        private:
+        const int LEARNING_WINDOW = 1;
+        int learning_window_index = 0;
+
         // initializing to original SZ3 weights: (a + b) / 2;
         double w1 = 1.0/2.0;
         double w2 = 1.0/2.0;
@@ -226,10 +229,22 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             b_1 += d_i_minus_1 * d_i_plus_1;
             b_2 += d_i_plus_1 * d_i_plus_1;
             b_3 += d_i * d_i_plus_1;
+
+            learning_window_index++;
+            if (learning_window_index == LEARNING_WINDOW) {
+                finalize_learning();
+                learning_window_index = 0;
+//                a_1 = 0;
+//                a_2 = 0;
+//                a_3 = 0;
+//                b_1 = 0;
+//                b_2 = 0;
+//                b_3 = 0;
+            }
         }
 
         void finalize_learning() {
-            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+//            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
             double d1 = a_1 * b_2 - a_2 * b_1;
             double d2 = a_1 * b_2 - a_2 * b_1;
             if (d1 != 0 && d2 != 0) {
@@ -244,12 +259,12 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         void save(uchar *&c) {
-            write(w1, c);
-            write(w2, c);
+//            write(w1, c);
+//            write(w2, c);
         }
         void load(const uchar *&c, size_t &remaining_length) {
-            read(w1, c, remaining_length);
-            read(w2, c, remaining_length);
+//            read(w1, c, remaining_length);
+//            read(w2, c, remaining_length);
         }
     };
 
@@ -542,56 +557,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return interpolate_custom_order(data, BLOCK_SIZE);
     }
 
-    void learn_weights_custom_order(T * data, size_t block_size) {
-        std::cout << "Learning weights using custom order" << std::endl;
-        traverse_customer_order(Learning, data, block_size);
-        linear_interpolator.finalize_learning();
-    }
-
-    std::vector<int> interpolate_custom_order(T *data, size_t block_size){
-        std::cout << "Interpolating using custom order" <<std::endl;
-        linear_interpolator.print_weight();
-        cubic_interpolator.print_weights();
-        std::vector<int> quant_inds_vec(num_elements);
-        quant_inds = quant_inds_vec.data();
-
-        //todo: change it
-
-        quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*(data+1), *(data+1));
-        traverse_customer_order(Interpolation, data, block_size);
-        return quant_inds_vec;
-    }
-
-    void traverse_customer_order(TraversalPurpose purpose, T * data, size_t block_size) {
-//        if (N != 1) throw std::runtime_error("multidimensional data is not supported.");
-        for(int i = 0 ; i < num_elements; i++) {
-            if (i % block_size == 0) {
-                if (purpose == Learning) {
-                    linear_interpolator.learn(*(data + i - 2), *(data + i), *(data + i - 1));
-                } else if (purpose == Interpolation) {
-                    quant_inds[quant_index++] = quantizer.quantize_and_overwrite(*(data+i), 0);
-                }
-            } else if (i % block_size == 1) {
-                if (purpose == Learning) {
-                    linear_interpolator.learn(*(data + i - 2), *(data + i), *(data + i - 1));
-                } else if (purpose == Interpolation) {
-                    quantize(0, *(data + i), linear_interpolator.interp(*(data + i - 2), *(data + i - 1)));
-                }
-            } else {
-                if (purpose == Learning) {
-                    linear_interpolator.learn(*(data + i - 2), *(data + i), *(data + i - 1));
-                } else if (purpose == Interpolation) {
-                    quantize(0, *(data + i), linear_interpolator.interp(*(data + i - 2), *(data + i - 1)));
-                }
-            }
-
-        }
-    }
-
     std::vector<int> compress_using_sz3s_original_order(T *data){
         /// just comment out to use the original SZ3
         ///     except, weights are stored
-        learn_weights(data);
+//        learn_weights(data);
         return interpolate(data);
     }
 
@@ -686,15 +655,20 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
                     if (purpose == Interpolation){
-                        if (quant_index < 500000) {
-//                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
-//                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)
-//                                      << " prediction " <<  prediction << " error: " << *d - prediction <<  std::endl;
-                                (*order_file) << *(d - stride) << " " << *(d + stride) << " " << *d <<std::endl;
-                        }
+//                        if (quant_index < 500000) {
+////                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
+////                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)
+////                                      << " prediction " <<  prediction << " error: " << *d - prediction <<  std::endl;
+//                                (*order_file) << *(d - stride) << " " << *(d + stride) << " " << *d <<std::endl;
+//                        }
+                        auto ori = *d;
                         quantize(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
-                    } else if (purpose == Learning) {
                         linear_interpolator.learn(*(d - stride), *d, *(d + stride));
+                        if (quant_index < 100) std::cout << "[ " << ori << ", " << *(d - stride) << ", " << *(d + stride)<<
+                                                   ", " << *d << "]," << std::endl;
+
+                    } else if (purpose == Learning) {
+
                     }
                 }
                 if (n % 2 == 0) {
@@ -712,10 +686,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                             //todo: what should I with interp_linear1
                             //todo: change the corresponding recovering accordingly
                             quantize(d - data, *d, interp_linear1(*(d - stride3x), *(d - stride)));
-//                            quantize(d - data, *d, linear_interpolator.interp(*(d - stride3x), *(d - stride)));
                         } else if (purpose == Learning) {
                             //todo: what should I do here?
-//                            linear_interpolator.learn(*(d - stride3x), *d, *(d - stride));
                         }
                     }
                 }
@@ -723,6 +695,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                 for (size_t i = 1; i + 1 < n; i += 2) {
                     T *d = data + begin + i * stride;
                     recover(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
+                    linear_interpolator.learn(*(d - stride), *d, *(d + stride));
                 }
                 if (n % 2 == 0) {
                     T *d = data + begin + (n - 1) * stride;
