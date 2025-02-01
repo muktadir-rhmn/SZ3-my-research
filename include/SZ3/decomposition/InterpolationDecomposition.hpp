@@ -73,7 +73,7 @@ class EquationSolver {
 template <class T, uint N, class Quantizer>
 class InterpolationDecomposition : public concepts::DecompositionInterface<T, int, N> {
    public:
-    InterpolationDecomposition(const Config &conf, Quantizer quantizer) : quantizer(quantizer) {
+    InterpolationDecomposition(const Config &conf, Quantizer quantizer) : quantizer(quantizer), linear_interpolator(quantizer.get_eb()) {
         static_assert(std::is_base_of<concepts::QuantizerInterface<T, int>, Quantizer>::value,
                       "must implement the quatizer interface");
     }
@@ -226,6 +226,86 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             b_1 += d_i_minus_1 * d_i_plus_1;
             b_2 += d_i_plus_1 * d_i_plus_1;
             b_3 += d_i * d_i_plus_1;
+        }
+
+        void finalize_learning() {
+            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            double d1 = a_1 * b_2 - a_2 * b_1;
+            double d2 = a_1 * b_2 - a_2 * b_1;
+            if (d1 != 0 && d2 != 0) {
+                w1 = (b_2 * a_3 - a_2 * b_3) / d1;
+                w2 = (a_1 * b_3 - a_3 * b_1) / d2;
+            }
+
+        }
+
+        void print_weight(){
+            std::cout << "Linear Weights(" << w1 << "," << w2 << ")" << std::endl;
+        }
+
+        void save(uchar *&c) {
+            write(w1, c);
+            write(w2, c);
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            read(w1, c, remaining_length);
+            read(w2, c, remaining_length);
+        }
+    };
+
+    class LinearWeightRangeLearningInterpolator {
+       private:
+        // initializing to original SZ3 weights: (a + b) / 2;
+        double w1 = 1.0/2.0;
+        double w2 = 1.0/2.0;
+
+        double error_bound = 0;
+        const double NUM_POINTS_PER_POINT = 1000;
+
+        long num_datapoints = 0;
+        double a_1 = 0;
+        double a_2 = 0;
+        double a_3 = 0;
+        double b_1 = 0;
+        double b_2 = 0;
+        double b_3 = 0;
+
+        void learn_single(T d_i_minus_1, T d_i, T d_i_plus_1){
+            a_1 += d_i_minus_1 * d_i_minus_1;
+            a_2 += d_i_plus_1 * d_i_minus_1;
+            a_3 += d_i * d_i_minus_1;
+
+            b_1 += d_i_minus_1 * d_i_plus_1;
+            b_2 += d_i_plus_1 * d_i_plus_1;
+            b_3 += d_i * d_i_plus_1;
+        }
+
+       public:
+        LinearWeightRangeLearningInterpolator(double error_bound) {
+            this->error_bound = error_bound;
+        }
+
+        T interp(T d_i_minus_1, T d_i_plus_1) {
+            return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+        }
+
+        void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+            num_datapoints++;
+            T start_m = d_i_minus_1 - error_bound;
+            T end_m = d_i_minus_1 + error_bound;
+
+            learn_single(d_i_minus_1, d_i, d_i_plus_1);
+            T interval = 2 * error_bound / NUM_POINTS_PER_POINT;
+            while (start_m <= end_m) {
+                T start_p = d_i_plus_1 - error_bound;
+                T end_p = d_i_plus_1 + error_bound;
+                while (start_p <= end_p) {
+                    learn_single(start_m, d_i, start_p);
+
+                    start_m += interval;
+                    start_p += interval;
+                }
+            }
         }
 
         void finalize_learning() {
@@ -947,7 +1027,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
-    LinearWeightLearningInterpolator linear_interpolator;
+//    LinearWeightLearningInterpolator linear_interpolator;
+    LinearWeightRangeLearningInterpolator linear_interpolator;
 //    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
 //    LinearWeightByBlocksLearningInterpolator linear_interpolator;
 //    LinearWeightWithConstantLearningInterpolator linear_interpolator;
