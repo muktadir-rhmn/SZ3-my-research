@@ -32,6 +32,7 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
     // quantize the data with a prediction value, and returns the quantization index and the decompressed data
     // int quantize(T data, T pred, T& dec_data);
     int quantize_and_overwrite(T &data, T pred) override {
+        if (data == 0.0) return -1;
         T diff = data - pred;
 //        auto quant_index = std::llround(fabs(diff) * this->error_bound_reciprocal) + 1;
         auto quant_index = static_cast<int64_t>(fabs(diff) * this->error_bound_reciprocal) + 1;
@@ -100,6 +101,9 @@ class LinearQuantizer : public concepts::QuantizerInterface<T, int> {
 
     // recover the data using the quantization index
     T recover(T pred, int quant_index) override {
+        if (quant_index == -1) {
+            return 0;
+        }
         if (quant_index) {
             return recover_pred(pred, quant_index);
         } else {

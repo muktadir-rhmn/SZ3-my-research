@@ -217,6 +217,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+//            if (d_i == 0.0) return;
             num_datapoints++;
 
             a_1 += d_i_minus_1 * d_i_minus_1;
