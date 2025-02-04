@@ -217,6 +217,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+//            if (is_outlier(d_i_minus_1, d_i, d_i_plus_1)) return;
             num_datapoints++;
 
             a_1 += d_i_minus_1 * d_i_minus_1;
@@ -226,6 +227,20 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             b_1 += d_i_minus_1 * d_i_plus_1;
             b_2 += d_i_plus_1 * d_i_plus_1;
             b_3 += d_i * d_i_plus_1;
+        }
+
+        bool is_outlier(T x1, T y, T x2) {
+            // hdr_night
+            double std_dev = 74.0, prev_w1 = 0.477669, prev_w2 = 0.585154;
+//            double std_dev = 74.0, prev_w1 = 0.477669, prev_w2 = 0.585154;
+
+            double  prediction =  * x1 + * x2;
+            double err = std::abs(y - prediction);
+            if (err / std_dev >= 2) {
+                return true;
+            } else {
+                return false;
+            }
         }
 
         void finalize_learning() {
