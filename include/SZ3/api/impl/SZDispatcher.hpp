@@ -21,16 +21,16 @@ size_t SZ_compress_dispatcher(Config &conf, const T *data, uchar *cmpData, size_
         try {
             std::vector<T> dataCopy(data, data + conf.num);
             if (conf.cmprAlgo == ALGO_LORENZO_REG) {
-                std::cout <<"compressor=LorenzoRegression" << std::endl;
+//                std::cout <<"compressor=LorenzoRegression" << std::endl;
                 cmpSize = SZ_compress_LorenzoReg<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
             } else if (conf.cmprAlgo == ALGO_INTERP) {
-                std::cout <<"compressor=SplineInterpolation" << std::endl;
+//                std::cout <<"compressor=SplineInterpolation" << std::endl;
                 cmpSize = SZ_compress_Interp<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
             } else if (conf.cmprAlgo == ALGO_INTERP_LORENZO) {
-                std::cout <<"compressor=LorenzoInterpolation" << std::endl;
+//                std::cout <<"compressor=LorenzoInterpolation" << std::endl;
                 cmpSize = SZ_compress_Interp_lorenzo<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
             } else if (conf.cmprAlgo == ALGO_NOPRED) {
-                std::cout <<"compressor=No Prediction" << std::endl;
+//                std::cout <<"compressor=No Prediction" << std::endl;
                 cmpSize = SZ_compress_nopred<T, N>(conf, dataCopy.data(), cmpData, cmpCap);
             }
 

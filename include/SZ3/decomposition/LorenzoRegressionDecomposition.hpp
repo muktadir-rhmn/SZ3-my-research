@@ -42,7 +42,7 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
     ~LorenzoRegressionDecomposition() override { clear(); }
 
     std::vector<int> compress(const Config &conf, T *data) override {
-        std::cout << "running_compression_algo=lorenzo_regression" << std::endl;
+//        std::cout << "running_compression_algo=lorenzo_regression" << std::endl;
         if (N == 1) {
             return compress_1d(data);
         } else {
