@@ -253,6 +253,53 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
     };
 
+    class LinearWeightSum1LearningInterpolator {
+       private:
+        // initializing to original SZ3 weights: (a + b) / 2;
+        double w1 = 1.0/2.0;
+        double w2 = 1.0/2.0;
+
+        double p = 0;
+        double q = 0;
+
+        long num_datapoints = 0;
+
+
+       public:
+        T interp(T d_i_minus_1, T d_i_plus_1) {
+            return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+        }
+
+        void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+            num_datapoints++;
+
+            p += (d_i_plus_1 - d_i) * (d_i_minus_1 - d_i_plus_1);
+            q += (d_i_plus_1 - d_i_minus_1) * (d_i_plus_1 - d_i_minus_1);
+        }
+
+        void finalize_learning() {
+            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            if (q != 0) {
+                w1 = p / q;
+                w2 = 1 - w1;
+            }
+
+        }
+
+        void print_weight(){
+            std::cout << "Linear Weights(" << w1 << "," << w2 << ")" << std::endl;
+        }
+
+        void save(uchar *&c) {
+            write(w1, c);
+            write(w2, c);
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            read(w1, c, remaining_length);
+            read(w2, c, remaining_length);
+        }
+    };
+
     class LinearWeightWithConstantLearningInterpolator {
        private:
         // initializing to original SZ3 weights: (a + b) / 2;
@@ -947,7 +994,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
-    LinearWeightLearningInterpolator linear_interpolator;
+//    LinearWeightLearningInterpolator linear_interpolator;
+    LinearWeightSum1LearningInterpolator linear_interpolator;
 //    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
 //    LinearWeightByBlocksLearningInterpolator linear_interpolator;
 //    LinearWeightWithConstantLearningInterpolator linear_interpolator;
