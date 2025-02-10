@@ -253,6 +253,76 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
     };
 
+    class LinearWeightLearningVarianceBasedInterpolator {
+       private:
+        // initializing to original SZ3 weights: (a + b) / 2;
+        double w1 = 1.0/2.0;
+        double w2 = 1.0/2.0;
+
+        long num_datapoints = 0;
+        double a_1 = 0;
+        double a_2 = 0;
+        double a_3 = 0;
+        double b_1 = 0;
+        double b_2 = 0;
+        double b_3 = 0;
+        double s_1 = 0;
+        double s_2 = 0;
+        double s_3 = 0;
+
+       public:
+        T interp(T d_i_minus_1, T d_i_plus_1) {
+            return w1 * d_i_minus_1 + w2 * d_i_plus_1;
+        }
+
+        void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+            num_datapoints++;
+
+            a_1 += d_i_minus_1 * d_i_minus_1;
+            a_2 += d_i_plus_1 * d_i_minus_1;
+            a_3 += d_i * d_i_minus_1;
+
+            s_1 += d_i_minus_1;
+            s_2 += d_i_plus_1;
+            s_3 += d_i;
+
+            b_1 += d_i_minus_1 * d_i_plus_1;
+            b_2 += d_i_plus_1 * d_i_plus_1;
+            b_3 += d_i * d_i_plus_1;
+        }
+
+        void finalize_learning() {
+            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            double p_1 = a_1 - (s_1 * s_1) / num_datapoints;
+            double p_2 = a_2 - (s_2 * s_1) / num_datapoints;
+            double p_3 = a_3 - (s_3 * s_1) / num_datapoints;
+
+            double q_1 = b_1 - (s_1 * s_2) / num_datapoints;
+            double q_2 = b_2 - (s_2 * s_2) / num_datapoints;
+            double q_3 = b_3 - (s_3 * s_2) / num_datapoints;
+
+            double qout_1 = p_1 * q_2 - p_2 * q_1;
+            double qout_2 = p_2 * q_1 - p_1 * q_2;
+            if (qout_1 != 0 && qout_2 != 0) {
+                w1 = (p_3 * q_2 - p_2 * q_3) / qout_1;
+                w2 = (p_3 * q_1 - p_1 * q_3) / qout_2;
+            }
+        }
+
+        void print_weight(){
+            std::cout << "Linear Weights(" << w1 << "," << w2 << ")" << std::endl;
+        }
+
+        void save(uchar *&c) {
+            write(w1, c);
+            write(w2, c);
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            read(w1, c, remaining_length);
+            read(w2, c, remaining_length);
+        }
+    };
+
     class LinearWeightSum1LearningInterpolator {
        private:
         // initializing to original SZ3 weights: (a + b) / 2;
@@ -995,7 +1065,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     }
 
 //    LinearWeightLearningInterpolator linear_interpolator;
-    LinearWeightSum1LearningInterpolator linear_interpolator;
+//    LinearWeightSum1LearningInterpolator linear_interpolator;
+    LinearWeightLearningVarianceBasedInterpolator linear_interpolator;
 //    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
 //    LinearWeightByBlocksLearningInterpolator linear_interpolator;
 //    LinearWeightWithConstantLearningInterpolator linear_interpolator;
