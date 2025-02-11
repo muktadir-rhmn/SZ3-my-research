@@ -204,6 +204,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         double w2 = 1.0/2.0;
 
         long num_datapoints = 0;
+        long num_outliers = 0;
         double a_1 = 0;
         double a_2 = 0;
         double a_3 = 0;
@@ -217,7 +218,10 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
-//            if (is_outlier(d_i_minus_1, d_i, d_i_plus_1)) return;
+            if (is_outlier(d_i_minus_1, d_i, d_i_plus_1)) {
+                num_outliers++;
+                return;
+            }
             num_datapoints++;
 
             a_1 += d_i_minus_1 * d_i_minus_1;
@@ -231,12 +235,17 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 
         bool is_outlier(T x1, T y, T x2) {
             // hdr_night
-            double std_dev = 74.0, prev_w1 = 0.477669, prev_w2 = 0.585154;
 //            double std_dev = 74.0, prev_w1 = 0.477669, prev_w2 = 0.585154;
 
-            double  prediction =  * x1 + * x2;
+            // Miranda density
+//            double std_dev = 0.026, prev_w1 = 0.501084, prev_w2 = 0.499742;
+
+            // NYX Density ,
+            double std_dev = 20.14, prev_w1 = 0.802835, prev_w2 = 0.531941;
+
+            double  prediction = prev_w1 * x1 + prev_w2 * x2;
             double err = std::abs(y - prediction);
-            if (err / std_dev >= 2) {
+            if (err / std_dev >= 1) {
                 return true;
             } else {
                 return false;
@@ -244,7 +253,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         void finalize_learning() {
-            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            std::cout << "Computing weights from " << num_datapoints << " data points, Skipped outliers: " << num_outliers <<std::endl;
             double d1 = a_1 * b_2 - a_2 * b_1;
             double d2 = a_1 * b_2 - a_2 * b_1;
             if (d1 != 0 && d2 != 0) {
