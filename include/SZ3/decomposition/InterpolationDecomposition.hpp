@@ -128,8 +128,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         init();
 
         //for analysis purpose:
-        std::ofstream order_file_inst("/home/foo/datasets/acs_wht_order_file.txt");
-        order_file = &order_file_inst;
+//        std::ofstream order_file_inst("/home/foo/datasets/acs_wht_order_file.txt");
+//        order_file = &order_file_inst;
 
         auto quant_inds_vec = compress_using_sz3s_original_order(data);
 //        auto quant_inds_vec = compress_using_my_custom_order(data);
@@ -593,6 +593,19 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         double w2 = 9.0 / 16.0;
         double w3 = 9.0 / 16.0;
         double w4 = -1.0 / 16.0;
+
+        // worse ratio
+//        double w1 = 1.0 / 4.0;
+//        double w2 = 1.0 / 4.0;
+//        double w3 = 1.0 / 4.0;
+//        double w4 = 1.0 / 4.0;
+
+        // worse ratio
+//        double w1 = -1.0 / 18.0;
+//        double w2 = 10.0 / 18.0;
+//        double w3 = 10.0 / 18.0;
+//        double w4 = -1.0 / 18.0;
+
        public:
         T interp(T a, T b, T c, T d) {
             return w1 * a +
@@ -807,7 +820,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 //                            double prediction = linear_interpolator.interp(*(d - stride), *(d + stride));
 //                            std::cout << "predicting " << *d << " using " << *(d - stride) << " , " << *(d + stride)
 //                                      << " prediction " <<  prediction << " error: " << *d - prediction <<  std::endl;
-                                (*order_file) << *(d - stride) << " " << *(d + stride) << " " << *d <<std::endl;
+//                                (*order_file) << *(d - stride) << " " << *(d + stride) << " " << *d <<std::endl;
                         }
                         quantize(d - data, *d, linear_interpolator.interp(*(d - stride), *(d + stride)));
                     } else if (purpose == Learning) {
