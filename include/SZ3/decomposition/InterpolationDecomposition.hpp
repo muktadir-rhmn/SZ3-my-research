@@ -166,7 +166,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             it++;
         }
 
-        order_file->close();
+//        order_file->close();
         return quant_inds_vec;
     }
 
@@ -606,12 +606,89 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
 //        double w3 = 10.0 / 18.0;
 //        double w4 = -1.0 / 18.0;
 
+        size_t num_datapoints = 0;
+        double a1 = 0.0;
+        double a2 = 0.0;
+        double a3 = 0.0;
+        double a4 = 0.0;
+        double a5 = 0.0;
+
+        double b1 = 0.0;
+        double b2 = 0.0;
+        double b3 = 0.0;
+        double b4 = 0.0;
+        double b5 = 0.0;
+
+        double c1 = 0.0;
+        double c2 = 0.0;
+        double c3 = 0.0;
+        double c4 = 0.0;
+        double c5 = 0.0;
+
+        double d1 = 0.0;
+        double d2 = 0.0;
+        double d3 = 0.0;
+        double d4 = 0.0;
+        double d5 = 0.0;
        public:
         T interp(T a, T b, T c, T d) {
             return w1 * a +
                    w2 * b +
                    w3 * c +
                    w4 * d;
+        }
+
+        void learn(T d_i_m_3, T d_i_m_1, T d_i, T d_i_p_1, T d_i_p_3) {
+            num_datapoints++;
+
+            a1 += d_i_m_3 * d_i_m_3;
+            a2 += d_i_m_1 * d_i_m_3;
+            a3 += d_i_p_1 * d_i_m_3;
+            a4 += d_i_p_3 * d_i_m_3;
+            a5 += d_i * d_i_m_3;
+
+            b1 += d_i_m_3 * d_i_m_1;
+            b2 += d_i_m_1 * d_i_m_1;
+            b3 += d_i_p_1 * d_i_m_1;
+            b4 += d_i_p_3 * d_i_m_1;
+            b5 += d_i * d_i_m_1;
+
+            c1 += d_i_m_3 * d_i_p_1;
+            c2 += d_i_m_1 * d_i_p_1;
+            c3 += d_i_p_1 * d_i_p_1;
+            c4 += d_i_p_3 * d_i_p_1;
+            c5 += d_i * d_i_p_1;
+
+            d1 += d_i_m_3 * d_i_p_3;
+            d2 += d_i_m_1 * d_i_p_3;
+            d3 += d_i_p_1 * d_i_p_3;
+            d4 += d_i_p_3 * d_i_p_3;
+            d5 += d_i * d_i_p_3;
+        }
+
+        void finalize_learning() {
+            std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
+            std::vector<std::vector<double>> A = {
+                {a1, a2, a3, a4},
+                {b1, b2, b3, b4},
+                {c1, c2, c3, c4},
+                {d1, d2, d3, d4},
+            };
+            std::vector<double> B = {
+                a5,
+                b5,
+                c5,
+                d5
+            };
+            try {
+                std::vector<double> weights = EquationSolver::solve(A, B);
+                w1 = weights[0];
+                w2 = weights[1];
+                w3 = weights[2];
+                w4 = weights[3];
+            } catch (const std::runtime_error& error) {
+                std::cout << "determinant is 0. So, using interpolation weights" << std::endl;
+            }
         }
 
         void print_weights() {
@@ -729,6 +806,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         std::cout << "Learning weights" << std::endl;
         traverse(Learning, data);
         linear_interpolator.finalize_learning();
+        cubic_interpolator.finalize_learning();
     }
 
     std::vector<int> interpolate(T * data) {
@@ -873,8 +951,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
                         quantize(d - data, *d,
                             cubic_interpolator.interp(*(d - stride3x), *(d - stride), *(d + stride), *(d + stride3x)));
                     } else if (purpose == Learning) {
-                        //todo: what should I do here?
-
+                        cubic_interpolator.learn(*(d - stride3x), *(d - stride), *d, *(d + stride), *(d + stride3x));
                     }
                 }
                 d = data + begin + stride;
@@ -1077,9 +1154,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
-//    LinearWeightLearningInterpolator linear_interpolator;
+    LinearWeightLearningInterpolator linear_interpolator;
 //    LinearWeightSum1LearningInterpolator linear_interpolator;
-    LinearWeightLearningVarianceBasedInterpolator linear_interpolator;
+//    LinearWeightLearningVarianceBasedInterpolator linear_interpolator;
 //    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
 //    LinearWeightByBlocksLearningInterpolator linear_interpolator;
 //    LinearWeightWithConstantLearningInterpolator linear_interpolator;
