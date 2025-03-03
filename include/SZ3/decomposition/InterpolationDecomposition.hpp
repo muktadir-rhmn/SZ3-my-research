@@ -81,6 +81,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     T *decompress(const Config &conf, std::vector<int> &quant_inds, T *dec_data) override {
         init();
         linear_interpolator.print_weight();
+        cubic_interpolator.print_weights();
         this->quant_inds = quant_inds.data();
         //            lossless.postdecompress_data(buffer);
         double eb = quantizer.get_eb();
@@ -145,26 +146,27 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         std::cout << "mean squared error = " << mse << std::endl;
         std::cout << "variance = " << variance << std::endl;
         std::cout << "max prediction error = " << max_prediction_error << std::endl;
-        std::cout << "average difference between original and decompressed = " <<  avg_diff << std::endl;
+        std::cout << "average compression error = " <<  avg_diff << std::endl;
+        std::cout << "max compression error = " <<  max_compression_error << " (abs error bound: " << quantizer.get_eb()<< std::endl;
 
-        std::map<int, int> freq_map; // ordered map
-        for (auto i: quant_inds_vec) {
-            freq_map[i] += 1;
-        }
-        std::cout << "Unique indices = " << freq_map.size() <<std::endl;
-
-        std::map<int, int> freq_to_index;
-        for (auto & i : freq_map) {
-            auto index = i.first;
-            auto freq = i.second;
-            freq_to_index[freq] = index;
-        }
-
-        auto it = freq_to_index.rbegin();
-        for(auto i = 0; i < 10; i++) {
-            std::cout << it-> first << ", " << it-> second <<std::endl;
-            it++;
-        }
+//        std::map<int, int> freq_map; // ordered map
+//        for (auto i: quant_inds_vec) {
+//            freq_map[i] += 1;
+//        }
+//        std::cout << "Unique indices = " << freq_map.size() <<std::endl;
+//
+//        std::map<int, int> freq_to_index;
+//        for (auto & i : freq_map) {
+//            auto index = i.first;
+//            auto freq = i.second;
+//            freq_to_index[freq] = index;
+//        }
+//
+//        auto it = freq_to_index.rbegin();
+//        for(auto i = 0; i < 10; i++) {
+//            std::cout << it-> first << ", " << it-> second <<std::endl;
+//            it++;
+//        }
 
 //        order_file->close();
         return quant_inds_vec;
@@ -177,6 +179,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         write(direction_sequence_id, c);
 
         linear_interpolator.save(c);
+        cubic_interpolator.save(c);
 
         quantizer.save(c);
     }
@@ -188,6 +191,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         read(direction_sequence_id, c, remaining_length);
 
         linear_interpolator.load(c, remaining_length);
+        cubic_interpolator.load(c, remaining_length);
 
         quantizer.load(c, remaining_length);
     }
@@ -695,6 +699,19 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             std::cout << "Cubic Weights(" << w1 << "," << w2 << "," << w3<< "," << w4 << ")" << std::endl;
         }
 
+        void save(uchar *&c) {
+            write(w1, c);
+            write(w2, c);
+            write(w3, c);
+            write(w4, c);
+        }
+        void load(const uchar *&c, size_t &remaining_length) {
+            read(w1, c, remaining_length);
+            read(w2, c, remaining_length);
+            read(w3, c, remaining_length);
+            read(w4, c, remaining_length);
+        }
+
         //todo: learning (similar to LinearWeightLearningInterpolator)
         //todo: write save() for storing the weights
         //todo: write load() for loading the weights
@@ -874,7 +891,9 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         }
 
         T decompressed_value = d;
-        diff_sum += std::abs(original_value - decompressed_value);
+        double compression_error = std::abs(original_value - decompressed_value);
+        diff_sum += compression_error;
+        max_compression_error = std::max(max_compression_error, compression_error);
     }
 
     inline void recover(size_t idx, T &d, T pred) { d = quantizer.recover(pred, quant_inds[quant_index++]); }
@@ -1167,6 +1186,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
     double prediction_error_squared_sum = 0;
     double max_prediction_error = -9999999999999;
     double diff_sum = 0; // sum of difference between original data and decompressed data
+    double max_compression_error = -9999999999999;
     size_t num_data_points_compressed = 0;
     size_t predicted_data_points = 0;
 
