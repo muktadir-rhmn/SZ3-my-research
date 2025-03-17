@@ -354,7 +354,7 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         void finalize_learning() {
             std::cout << "Computing weights from " << num_datapoints << " data points" <<std::endl;
             if (q != 0) {
-                w1 = p / q;
+                w1 = -p / q;
                 w2 = 1 - w1;
             }
 
