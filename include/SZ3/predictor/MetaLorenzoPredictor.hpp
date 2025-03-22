@@ -87,7 +87,8 @@ inline void lorenzo_predict_quantize_3d(const meanInfo<T> &mean_info, const T *d
                     }
                     //                    *cur_buffer_pos = cur_data;
                     //                    type_pos[k] = quantizer.quantize_and_overwrite(*cur_buffer_pos, pred);
-                    type_pos[k] = quantizer.quantize_and_overwrite(cur_data, pred, *cur_buffer_pos);
+                    // Me: for training, *cur_buffer_pos = cur_data
+                    type_pos[k] = quantizer.quantize_and_overwrite(cur_data, pred, *cur_buffer_pos); //Me: for training comment this out
                     if (mean_info.use_mean && type_pos[k] >= radius) {
                         type_pos[k] += 1;
                     }

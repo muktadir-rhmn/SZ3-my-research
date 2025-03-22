@@ -98,8 +98,8 @@ struct DSize_3d {
         num_y = (r2 - 1) / block_size + 1;
         num_z = (r3 - 1) / block_size + 1;
         num_blocks = num_x * num_y * num_z;
-        dim0_offset = r2 * r3;
-        dim1_offset = r3;
+        dim0_offset = r2 * r3; // distance between &arr[i][j][k] and &arr[i+1][j][k]
+        dim1_offset = r3; // distance between &arr[i][j][k] and &arr[i][j+1][k]
     }
 };
 

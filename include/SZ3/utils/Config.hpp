@@ -304,7 +304,8 @@ class Config {
     char N = 0;
     std::vector<size_t> dims;
     size_t num = 0;
-    uint8_t cmprAlgo = ALGO_INTERP_LORENZO;
+//    uint8_t cmprAlgo = ALGO_INTERP_LORENZO;
+    uint8_t cmprAlgo = ALGO_LORENZO_REG;
     uint8_t errorBoundMode = EB_ABS;
     double absErrorBound = 1e-3;
     double relErrorBound = 0.0;
@@ -312,7 +313,7 @@ class Config {
     double l2normErrorBound = 0.0;
     bool lorenzo = true;
     bool lorenzo2 = false;
-    bool regression = true;
+    bool regression = false;
     bool regression2 = false;
     bool openmp = false;
     uint8_t dataType = SZ_FLOAT;  // dataType is only used in HDF5 filter

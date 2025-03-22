@@ -196,10 +196,10 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
         //                capacity = conf.quantbinCnt;
         //            }
         //            intv_radius = (capacity >> 1);
-        std::vector<int> type(size.num_elements);
+        std::vector<int> type(size.num_elements); //Me: quantization numbers
         //            int *type = (int *) malloc(size.num_elements * sizeof(int));
         //            indicator = (int *) malloc(size.num_blocks * sizeof(int));
-        indicator.resize(size.num_blocks);
+        indicator.resize(size.num_blocks); // Me: stores which predictor was chosen for each block
 
         reg_params_type = static_cast<int *>(malloc(RegCoeffNum3d * size.num_blocks * sizeof(int)));
         reg_unpredictable_data = static_cast<float *>(malloc(RegCoeffNum3d * size.num_blocks * sizeof(float)));
@@ -242,7 +242,7 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
         size_t buffer_dim1_offset = size.d3 + params.lorenzo_padding_layer;
         T *pred_buffer = static_cast<T *>(
             malloc((size.block_size + params.lorenzo_padding_layer) * (size.d2 + params.lorenzo_padding_layer) *
-                   (size.d3 + params.lorenzo_padding_layer) * sizeof(T)));
+                   (size.d3 + params.lorenzo_padding_layer) * sizeof(T))); //Me: stores decompressed values? then why the first one is block_size?, probably we don't need more
         memset(pred_buffer, 0,
                (size.block_size + params.lorenzo_padding_layer) * (size.d2 + params.lorenzo_padding_layer) *
                    (size.d3 + params.lorenzo_padding_layer) * sizeof(T));
@@ -338,6 +338,7 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
                         reg_params_type_pos += RegCoeffNum3d;
                     } else {
                         // Lorenzo
+                        // Me: process one block
                         lorenzo_predict_quantize_3d<T>(
                             mean_info, z_data_pos, pred_buffer_pos, precision, recip_precision, capacity, intv_radius,
                             size_x, size_y, size_z, buffer_dim0_offset, buffer_dim1_offset, size.dim0_offset,
