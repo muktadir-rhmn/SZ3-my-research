@@ -53,10 +53,10 @@ class SZGenericCompressor : public concepts::CompressorInterface<T> {
 
         //store the size of quant_inds is necessary as it is not always equal to conf.num
         write<size_t>(quant_inds.size(), buffer_pos);
-        std::cout << "Number of quantization indices = " << quant_inds.size() << std::endl;
-        auto encoded_size_in_bytes = encoder.encode(quant_inds, buffer_pos);
-        std::cout << "Huffman encoded size = " << encoded_size_in_bytes << std::endl;
-        std::cout << "Huffman encoded size per point = " << ((double)encoded_size_in_bytes) / quant_inds.size() << std::endl;
+        // std::cout << "Number of quantization indices = " << quant_inds.size() << std::endl;
+        encoder.encode(quant_inds, buffer_pos);
+        // std::cout << "Huffman encoded size = " << encoded_size_in_bytes << std::endl;
+        // std::cout << "Huffman encoded size per point = " << ((double)encoded_size_in_bytes) / quant_inds.size() << std::endl;
         encoder.postprocess_encode();
         
         auto cmpSize = lossless.compress(buffer, buffer_pos - buffer, cmpData, cmpCap);

@@ -46,7 +46,8 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
         if (N == 1) {
             return compress_1d(data);
         } else {
-            return compress_3d(data);
+            // return compress_3d(data);
+            return compress_3d_using_learned_lorenzo(data);
         }
     }
 
@@ -54,7 +55,8 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
         if (N == 1) {
             return decompress_1d(quant_inds, dec_data);
         } else {
-            return decompress_3d(quant_inds, dec_data);
+            // return decompress_3d(quant_inds, dec_data);
+            return decompress_3d_using_learned_lorenzo(quant_inds, dec_data);
         }
     }
 
@@ -80,17 +82,21 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
 
             //            Huffman_encode_tree_and_data(SELECTOR_RADIUS, indicator, size.num_blocks, c);
             //            indicator_huffman.preprocess_encode(indicator, SELECTOR_RADIUS);
-            indicator_huffman.save(c);
-            indicator_huffman.encode(indicator, c);
-            indicator_huffman.postprocess_encode();
+
+            // Me: uncomment to make regression work
+            // indicator_huffman.save(c);
+            // indicator_huffman.encode(indicator, c);
+            // indicator_huffman.postprocess_encode();
+            
             // auto *c2 = c;
 
             //	convertIntArray2ByteArray_fast_1b_to_result_sz(indicator, size.num_blocks, c);
 
-            if (reg_count) {
-                encode_regression_coefficients(reg_params_type, reg_unpredictable_data, RegCoeffNum3d * reg_count,
-                                               reg_unpredictable_data_pos - reg_unpredictable_data, reg_huffman, c);
-            }
+            // Me: uncomment to make regression work
+            // if (reg_count) {
+            //     encode_regression_coefficients(reg_params_type, reg_unpredictable_data, RegCoeffNum3d * reg_count,
+            //                                    reg_unpredictable_data_pos - reg_unpredictable_data, reg_huffman, c);
+            // }
         }
 
         quantizer.save(c);
@@ -114,14 +120,16 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
             // prepare unpred buffer for vectorization
             est_unpred_count_per_index = size.num_blocks * size.block_size * 1;
 
-            indicator_huffman = HuffmanEncoder<int>();
-            indicator_huffman.load(c, remaining_length);
-            indicator = indicator_huffman.decode(c, size.num_blocks);
-            indicator_huffman.postprocess_decode();
+            // Me: uncomment to make regression work
+            // indicator_huffman = HuffmanEncoder<int>();
+            // indicator_huffman.load(c, remaining_length);
+            // indicator = indicator_huffman.decode(c, size.num_blocks);
+            // indicator_huffman.postprocess_decode();
 
-            if (reg_count) {
-                reg_params = decode_regression_coefficients(c, reg_count, size.block_size, precision, params);
-            }
+            // Me: uncomment to make regression work
+            // if (reg_count) {
+            //     reg_params = decode_regression_coefficients(c, reg_count, size.block_size, precision, params);
+            // }
         }
         quantizer.load(c, remaining_length);
         remaining_length -= c_pos - c;
@@ -178,6 +186,226 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
         }
         return dec_data;
     }
+
+    std::vector<int> compress_3d_using_learned_lorenzo(const T *data) {
+        clear();
+
+        size_t r1 = conf.dims[0];
+        size_t r2 = conf.dims[1];
+        size_t r3 = conf.dims[2];
+        size = SZMETA::DSize_3d(r1, r2, r3, conf.blockSize);
+
+        std::vector<int> type(size.num_elements); //Me: quantization numbers
+
+        int *type_pos = type.data();
+
+        // maintain a buffer of (block_size+1)*(r2+1)*(r3+1)
+        size_t buffer_dim0_offset = (size.d2 + params.lorenzo_padding_layer) * (size.d3 + params.lorenzo_padding_layer);
+        size_t buffer_dim1_offset = size.d3 + params.lorenzo_padding_layer;
+        T *pred_buffer = static_cast<T *>(
+            malloc((size.block_size + params.lorenzo_padding_layer) * (size.d2 + params.lorenzo_padding_layer) *
+                   (size.d3 + params.lorenzo_padding_layer) * sizeof(T))); //Me: stores decompressed values? then why the first one is block_size?, probably we don't need more
+        memset(pred_buffer, 0,
+               (size.block_size + params.lorenzo_padding_layer) * (size.d2 + params.lorenzo_padding_layer) *
+                   (size.d3 + params.lorenzo_padding_layer) * sizeof(T));
+        T recip_precision = static_cast<T>(1.0) / conf.absErrorBound;
+
+        const T *x_data_pos = data;
+        for (size_t i = 0; i < size.num_x; i++) {
+            const T *y_data_pos = x_data_pos;
+            T *pred_buffer_pos = pred_buffer;
+            for (size_t j = 0; j < size.num_y; j++) {
+                const T *z_data_pos = y_data_pos;
+                for (size_t k = 0; k < size.num_z; k++) {
+                    int size_x =
+                        ((i + 1) * size.block_size < size.d1) ? size.block_size : size.d1 - i * size.block_size;
+                    int size_y =
+                        ((j + 1) * size.block_size < size.d2) ? size.block_size : size.d2 - j * size.block_size;
+                    int size_z =
+                        ((k + 1) * size.block_size < size.d3) ? size.block_size : size.d3 - k * size.block_size;
+                    
+                    // Lorenzo
+                    // Me: process one block
+                    learned_lorenzo_predict_quantize_3d(
+                        mean_info, z_data_pos, pred_buffer_pos, precision, recip_precision, capacity, intv_radius,
+                        size_x, size_y, size_z, buffer_dim0_offset, buffer_dim1_offset, size.dim0_offset,
+                        size.dim1_offset, type_pos, unpred_count_buffer, unpred_data_buffer,
+                        est_unpred_count_per_index, params.lorenzo_padding_layer,
+                        false, quantizer, params.prediction_dim);
+                    
+                    pred_buffer_pos += size.block_size;
+                    z_data_pos += size_z;
+                }
+                y_data_pos += size.block_size * size.dim1_offset;
+                pred_buffer_pos += size.block_size * buffer_dim1_offset - size.block_size * size.num_z;
+            }
+            // copy bottom of buffer to top of buffer
+            memcpy(pred_buffer, pred_buffer + size.block_size * buffer_dim0_offset,
+                   params.lorenzo_padding_layer * buffer_dim0_offset * sizeof(T));
+            x_data_pos += size.block_size * size.dim0_offset;
+        }
+        free(pred_buffer);
+
+        return type;
+    }
+
+    T *decompress_3d_using_learned_lorenzo(std::vector<int> &quant_inds, T *dec_data) {
+        int *type = quant_inds.data();
+
+        const int *type_pos = type;
+        // add one more ghost layer
+        size_t buffer_dim0_offset = (size.d2 + params.lorenzo_padding_layer) * (size.d3 + params.lorenzo_padding_layer);
+        size_t buffer_dim1_offset = size.d3 + params.lorenzo_padding_layer;
+        T *pred_buffer = static_cast<T *>(
+            malloc((size.block_size + params.lorenzo_padding_layer) * (size.d2 + params.lorenzo_padding_layer) *
+                   (size.d3 + params.lorenzo_padding_layer) * sizeof(T)));
+        memset(pred_buffer, 0,
+               (size.block_size + params.lorenzo_padding_layer) * (size.d2 + params.lorenzo_padding_layer) *
+                   (size.d3 + params.lorenzo_padding_layer) * sizeof(T));
+        T *x_data_pos = dec_data;
+        for (size_t i = 0; i < size.num_x; i++) {
+            T *y_data_pos = x_data_pos;
+            T *pred_buffer_pos = pred_buffer;
+            for (size_t j = 0; j < size.num_y; j++) {
+                T *z_data_pos = y_data_pos;
+                for (size_t k = 0; k < size.num_z; k++) {
+                    int size_x =
+                        ((i + 1) * size.block_size < size.d1) ? size.block_size : size.d1 - i * size.block_size;
+                    int size_y =
+                        ((j + 1) * size.block_size < size.d2) ? size.block_size : size.d2 - j * size.block_size;
+                    int size_z =
+                        ((k + 1) * size.block_size < size.d3) ? size.block_size : size.d3 - k * size.block_size;
+                    
+                    // Lorenzo
+                    learned_lorenzo_predict_recover_3d(
+                        mean_info, pred_buffer_pos, precision, intv_radius, size_x, size_y, size_z,
+                        buffer_dim0_offset, buffer_dim1_offset, size.dim0_offset, size.dim1_offset, type_pos,
+                        unpred_count_buffer, unpred_data_buffer, est_unpred_count_per_index, z_data_pos,
+                        params.lorenzo_padding_layer, false, quantizer,
+                        params.prediction_dim);
+                    
+                    pred_buffer_pos += size.block_size;
+                    z_data_pos += size_z;
+                }
+                y_data_pos += size.block_size * size.dim1_offset;
+                pred_buffer_pos += size.block_size * buffer_dim1_offset - size.block_size * size.num_z;
+            }
+            memcpy(pred_buffer, pred_buffer + size.block_size * buffer_dim0_offset,
+                   params.lorenzo_padding_layer * buffer_dim0_offset * sizeof(T));
+            x_data_pos += size.block_size * size.dim0_offset;
+        }
+        free(pred_buffer);
+
+        //            free(unpred_count_buffer);
+        //            free(unpred_data_buffer);
+        return dec_data;
+    }
+
+    void learned_lorenzo_predict_quantize_3d(const meanInfo<T> &mean_info, const T *data_pos, T *buffer, T precision,
+                                            T recip_precision, int capacity, int intv_radius, int size_x, int size_y,
+                                            int size_z, size_t buffer_dim0_offset, size_t buffer_dim1_offset,
+                                            size_t dim0_offset, size_t dim1_offset, int *&type_pos,
+                                            int *unpred_count_buffer, T *unpred_buffer, size_t offset, int padding_layer,
+                                            bool use_2layer, Quantizer &quantizer, int pred_dim) {
+        const T *cur_data_pos = data_pos;
+        T *buffer_pos = buffer + padding_layer * (buffer_dim0_offset + buffer_dim1_offset + 1);
+        int radius = (quantizer.get_out_range().second - quantizer.get_out_range().first) / 2;
+        for (int i = 0; i < size_x; i++) {
+            for (int j = 0; j < size_y; j++) {
+                for (int k = 0; k < size_z; k++) {
+                    T *cur_buffer_pos = buffer_pos + k;
+                    T cur_data = cur_data_pos[k];
+                    T pred;
+                    if (mean_info.use_mean && fabs(cur_data - mean_info.mean) <= precision) {
+                        type_pos[k] = radius;
+                        *cur_buffer_pos = mean_info.mean;
+                    } else {
+                        if (use_2layer) {
+                            if (pred_dim == 3) {
+                                pred = lorenzo_predict_3d_2layer(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else if (pred_dim == 2) {
+                                pred = lorenzo_predict_2d_2layer(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else {
+                                pred = lorenzo_predict_1d_2layer(cur_buffer_pos, buffer_dim0_offset);
+                            }
+                        } else {
+                            if (pred_dim == 3) {
+                                pred = weight_learning_lorenzo_3d.predict(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else if (pred_dim == 2) {
+                                pred = lorenzo_predict_2d(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else {
+                                pred = lorenzo_predict_1d(cur_buffer_pos, buffer_dim0_offset);
+                            }
+                        }
+                        type_pos[k] = quantizer.quantize_and_overwrite(cur_data, pred, *cur_buffer_pos); //Me: for training comment this out
+                        if (mean_info.use_mean && type_pos[k] >= radius) {
+                            type_pos[k] += 1;
+                        }
+                    }
+                }
+                type_pos += size_z;
+                buffer_pos += buffer_dim1_offset;
+                cur_data_pos += dim1_offset;
+            }
+            buffer_pos += buffer_dim0_offset - size_y * buffer_dim1_offset;
+            cur_data_pos += dim0_offset - size_y * dim1_offset;
+        }
+    }
+
+    void learned_lorenzo_predict_recover_3d(const meanInfo<T> &mean_info, T *buffer, T precision, int intv_radius,
+                                        int size_x, int size_y, int size_z, size_t buffer_dim0_offset,
+                                        size_t buffer_dim1_offset, size_t dim0_offset, size_t dim1_offset,
+                                        const int *&type_pos, int *unpred_count_buffer, const T *unpred_data_buffer,
+                                        const int offset, T *dec_data_pos, const int layer, bool use_2layer,
+                                        Quantizer &quantizer, int pred_dim) {
+        T *cur_data_pos = dec_data_pos;
+        T *buffer_pos = buffer + layer * (buffer_dim0_offset + buffer_dim1_offset + 1);
+        int radius = (quantizer.get_out_range().second - quantizer.get_out_range().first) / 2;
+        for (int i = 0; i < size_x; i++) {
+            for (int j = 0; j < size_y; j++) {
+                for (int k = 0; k < size_z; k++) {
+                    int index = j * size_z + k;
+                    int type_val = type_pos[index];
+                    T *cur_buffer_pos = buffer_pos + k;
+                    if (type_val == 0) {
+                        cur_data_pos[k] = *cur_buffer_pos = quantizer.recover_unpred();
+                    } else if (mean_info.use_mean && type_val == radius) {
+                        cur_data_pos[k] = *cur_buffer_pos = mean_info.mean;
+                    } else {
+                        T pred;
+                        //                        pred = predict(cur_buffer_pos, buffer_dim1_offset, buffer_dim0_offset);
+                        if (use_2layer) {
+                            if (pred_dim == 3) {
+                                pred = lorenzo_predict_3d_2layer(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else if (pred_dim == 2) {
+                                pred = lorenzo_predict_2d_2layer(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else {
+                                pred = lorenzo_predict_1d_2layer(cur_buffer_pos, buffer_dim0_offset);
+                            }
+                        } else {
+                            if (pred_dim == 3) {
+                                pred = lorenzo_predict_3d(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else if (pred_dim == 2) {
+                                pred = lorenzo_predict_2d(cur_buffer_pos, buffer_dim0_offset, buffer_dim1_offset);
+                            } else {
+                                pred = lorenzo_predict_1d(cur_buffer_pos, buffer_dim0_offset);
+                            }
+                        }
+                        if (mean_info.use_mean && type_val > radius) {
+                            type_val -= 1;
+                        }
+                        cur_data_pos[k] = *cur_buffer_pos = quantizer.recover_pred(pred, type_val);
+                    }
+                }
+                buffer_pos += buffer_dim1_offset;
+                cur_data_pos += dim1_offset;
+            }
+            type_pos += size_y * size_z;
+            buffer_pos += buffer_dim0_offset - size_y * buffer_dim1_offset;
+            cur_data_pos += dim0_offset - size_y * dim1_offset;
+        }
+    }
+
 
     //        unsigned char *
     //        compress_3d(const T *data, size_t r1, size_t r2, size_t r3, double precision, size_t &compressed_size,
@@ -379,6 +607,7 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
         return type;
     }
 
+
     // T *
     //        meta_decompress_3d(const unsigned char *compressed, size_t r1, size_t r2, size_t r3) {
     T *decompress_3d(std::vector<int> &quant_inds, T *dec_data) {
@@ -537,6 +766,8 @@ class LorenzoRegressionDecomposition : public concepts::DecompositionInterface<T
             return SELECTOR_LORENZO;
         }
     }
+
+    WeightLearningLorenzo3D<T> weight_learning_lorenzo_3d;
 
     meta_params params;
     SZMETA::DSize_3d size;
