@@ -207,11 +207,10 @@ public:
     }
 
     T predict(const T *data_pos, size_t dim0_offset, size_t dim1_offset) {
-        if (t == 0) {
-            std::cout << "predicting using learned lorenzo" << std::endl;
-            t++;
-        }
         return predictor.predict(find_points_for_prediction(data_pos, dim0_offset, dim1_offset));
+        // return 0.5 * data_pos[-1] + 0.5 * data_pos[-dim0_offset - dim1_offset - 1]; // better ratio than Lorenzo for QMCPACK
+        // return 0.5 * data_pos[-1] + 0.5 * data_pos[-2]; // better ratio than Lorenzo for QMCPACK
+        // return (-data_pos[-1] + 9 * data_pos[-dim1_offset] + 9 * data_pos[-dim0_offset] - data_pos[-dim1_offset - 1]) / 16.0;
     }
 
 };
