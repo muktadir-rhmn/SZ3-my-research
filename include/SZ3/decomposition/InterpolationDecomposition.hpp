@@ -70,6 +70,127 @@ class EquationSolver {
     }
 };
 
+template <class T>
+class GeneralWeightLearningPredictor {
+    int num_weights;
+    std::vector<double> weights;
+    
+    size_t num_data_points = 0;
+    std::vector<std::vector<double>> as;
+    std::vector<double> bs;
+
+    void learn(T original, std::vector<T> values) {
+        if (values.size() != num_weights) throw std::runtime_error("Number of data points not equal to number of weights");
+        num_data_points++;
+        
+        for(int i = 0; i < num_weights; i++) {
+            for(int j = 0; j < num_weights; j++) {
+                as[i][j] += values[i] * values[j];
+            }
+        }
+
+        for(int i = 0; i < num_weights; i++) {
+            bs[i] += original * values[i];
+        }
+    }
+
+    T predict(std::vector<T> values) {
+        if (values.size() != num_weights) throw std::runtime_error("Number of data points not equal to number of weights");
+        T prediction = 0;
+        for(int i = 0; i < num_weights; i++) {
+            prediction += weights[i] * values[i];
+        }
+        return prediction;
+    }
+
+
+public:
+    template <typename... Types>
+    GeneralWeightLearningPredictor(int num_weights, Types... initial_weights) {
+        this->num_weights = num_weights;
+
+        as.resize(num_weights);
+        for(int i = 0; i < num_weights; i++) {
+            as[i].resize(num_weights, 0.0);
+        }
+
+        bs.resize(num_weights, 0.0);
+
+        weights = std::vector<double>{static_cast<double>(std::forward<Types>(initial_weights))...};    
+    }
+
+    GeneralWeightLearningPredictor(int num_weights) {
+        this->num_weights = num_weights;
+
+        as.resize(num_weights);
+        for(int i = 0; i < num_weights; i++) {
+            as[i].resize(num_weights, 0.0);
+        }
+
+        bs.resize(num_weights, 0.0);
+        weights.resize(num_weights, 0.0);
+    }
+
+    template <typename... Types>
+    void learn(T original, Types... values){
+        auto values_parsed = std::vector<T>{static_cast<T>(std::forward<Types>(values))...};
+        learn(original, values_parsed);
+    }
+    
+    void finalize_learning() {
+        std::cout << "Computing weights from " << num_data_points << " data points" << std::endl;
+
+        for(int i = 0; i < num_weights; i++) {
+            for(int j = 0; j < num_weights; j++) {
+                std::cout << as[i][j] << ", ";
+            }
+            std::cout <<std::endl;
+        }
+
+        for(int i = 0; i < num_weights; i++) {
+            std::cout << bs[i] <<", ";
+        }
+        std::cout << std::endl;
+
+        try {
+            weights = EquationSolver::solve(as, bs);    
+        } catch (const std::runtime_error& error) {
+            std::cout << "determinant is 0. So, using initial weights" << std::endl;
+        }
+
+    }
+
+    template <typename... Types>
+    T predict(Types... values) {
+        auto values_parsed = std::vector<T>{static_cast<T>(std::forward<Types>(values))...};
+        return predict(values_parsed);
+    }
+
+    void print_weights(){
+        std::cout << "Weights: ";
+        for(int i = 0; i < num_weights; i++) {
+            std::cout << weights[i] << ", ";
+        }
+        std::cout << std::endl;
+    }
+
+    void save(uchar *&c) {
+        write(num_weights, c);
+        for(int i = 0; i < num_weights; i++) {
+            write(weights[i], c);
+        }
+    }
+    void load(const uchar *&c, size_t &remaining_length) {
+        read(num_weights, c, remaining_length);
+        for(int i = 0 ; i < num_weights; i++) {
+            double w = 0.0;
+            read(w, c, remaining_length);
+            weights.push_back(w);
+        }
+        
+    }
+};
+
 template <class T, uint N, class Quantizer>
 class InterpolationDecomposition : public concepts::DecompositionInterface<T, int, N> {
    public:
@@ -256,6 +377,36 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
             read(w2, c, remaining_length);
         }
     };
+
+    class TwoWeightsGeneralWeightLearningPredictor {
+        private:
+            GeneralWeightLearningPredictor<T> predictor;
+        public:
+        TwoWeightsGeneralWeightLearningPredictor(): predictor(2){}
+
+         T interp(T d_i_minus_1, T d_i_plus_1) {
+             return predictor.predict(d_i_minus_1, d_i_plus_1);
+         }
+ 
+         void learn(T d_i_minus_1, T d_i, T d_i_plus_1){
+            predictor.learn(d_i, d_i_minus_1, d_i_plus_1);
+         }
+ 
+         void finalize_learning() {
+             predictor.finalize_learning();
+         }
+ 
+         void print_weight(){
+            predictor.print_weights();
+         }
+ 
+         void save(uchar *&c) {
+            predictor.save(c);
+         }
+         void load(const uchar *&c, size_t &remaining_length) {
+             predictor.load(c, remaining_length);
+         }
+     };
 
     class LinearWeightLearningVarianceBasedInterpolator {
        private:
@@ -1173,7 +1324,8 @@ class InterpolationDecomposition : public concepts::DecompositionInterface<T, in
         return predict_error;
     }
 
-    LinearWeightLearningInterpolator linear_interpolator;
+    // LinearWeightLearningInterpolator linear_interpolator;
+    TwoWeightsGeneralWeightLearningPredictor linear_interpolator;
 //    LinearWeightSum1LearningInterpolator linear_interpolator;
 //    LinearWeightLearningVarianceBasedInterpolator linear_interpolator;
 //    NonLinearWeightWithConstantLearningInterpolator linear_interpolator;
